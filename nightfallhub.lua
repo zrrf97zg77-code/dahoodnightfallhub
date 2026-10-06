@@ -1,6 +1,7 @@
 -- =============================================
 -- NIGHTFALL HUB — Da Hood
 -- Silent Aim + ESP + Tracers
+-- WITH HARDENED ANTI-CHEAT BYPASS
 -- =============================================
 
 print("🌙 Nightfall Hub loading...")
@@ -18,82 +19,117 @@ local Camera = workspace.CurrentCamera
 local mouse = player:GetMouse()
 
 -- =============================================
--- ANTI-DETECTION (MUST RUN FIRST)
+-- ANTI-DETECTION BYPASS (MUST RUN FIRST)
 -- =============================================
-local function disableGripCheck(tool)
+
+-- Neutralize grip checker connections + constants
+local function neutralizeGripChecker(tool)
     if not tool or not tool:IsA("Tool") then return end
+    
     pcall(function()
         if getconnections then
-            for _, c in ipairs(getconnections(tool:GetPropertyChangedSignal("Grip"))) do
-                pcall(function() c:Disable() end)
-            end
-            for _, c in ipairs(getconnections(tool.Changed)) do
-                pcall(function() c:Disable() end)
-            end
-        end
-        if hookmetamethod and getrawmetatable then
-            local mt = getrawmetatable(game)
-            if mt and mt.__namecall then
-                setreadonly(mt, false)
-                local old = mt.__namecall
-                mt.__namecall = newcclosure(function(self, ...)
-                    local method = getnamecallmethod()
-                    if not checkcaller() and method == "FireServer" then
-                        local nm = tostring(self.Name or "")
-                        if nm == "CHECKER_4" or nm:find("CHECKER") then
-                            return nil
+            -- Disable the Grip property connection
+            local gripConnections = getconnections(tool:GetPropertyChangedSignal("Grip"))
+            for _, conn in ipairs(gripConnections) do
+                pcall(function() conn:Disable() end)
+                
+                -- Change CHECKER_4 constant if it's a Lua function
+                local func = conn.Function
+                if func and not iscclosure(func) then
+                    local constants = debug.getconstants(func)
+                    for i, constant in pairs(constants) do
+                        if constant == "CHECKER_4" or (type(constant) == "string" and constant:find("CHECKER")) then
+                            debug.setconstant(func, i, "RandomRemote")
+                            break
                         end
                     end
-                    return old(self, ...)
-                end)
-                setreadonly(mt, true)
+                end
+            end
+            
+            -- Disable the generic Tool.Changed connection
+            local changedConnections = getconnections(tool.Changed)
+            for _, conn in ipairs(changedConnections) do
+                pcall(function() conn:Disable() end)
             end
         end
     end)
 end
 
+-- Attach guard to current and future tools
 local function attachToolGuard()
-    if player.Character then
-        disableGripCheck(player.Character:FindFirstChildOfClass("Tool"))
-        player.Character.ChildAdded:Connect(function(c)
-            if c:IsA("Tool") then
-                task.wait(0.05)
-                disableGripCheck(c)
-            end
-        end)
+    local char = player.Character
+    if not char then return end
+    
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool then
+        neutralizeGripChecker(tool)
     end
+    
+    char.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            task.wait(0.02)
+            neutralizeGripChecker(child)
+        end
+    end)
 end
 
-player.CharacterAdded:Connect(function(c)
-    task.wait(0.5)
+player.CharacterAdded:Connect(function()
+    task.wait(0.3)
     attachToolGuard()
 end)
 if player.Character then attachToolGuard() end
 
--- Also kill any dangling CHECKER_4 remote callers via remote name
+-- Globally block any CHECKER remote from firing
 pcall(function()
-    local mt = getrawmetatable(game)
-    if mt and mt.__namecall then
-        setreadonly(mt, false)
-        local old = mt.__namecall
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if not checkcaller() and method == "FireServer" then
-                local nm = string.lower(tostring(self.Name or ""))
-                if string.find(nm, "checker", 1, true) then
-                    return nil
+    if hookmetamethod and getrawmetatable then
+        local mt = getrawmetatable(game)
+        if mt and mt.__namecall then
+            setreadonly(mt, false)
+            local oldNamecall = mt.__namecall
+            mt.__namecall = newcclosure(function(self, ...)
+                local method = getnamecallmethod()
+                if not checkcaller() and method == "FireServer" then
+                    local remoteName = tostring(self.Name or "")
+                    if remoteName:find("CHECKER") or remoteName:find("checker") then
+                        return nil
+                    end
                 end
-            end
-            return old(self, ...)
-        end)
-        setreadonly(mt, true)
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+        end
     end
 end)
+
+-- Hidden GUI container
+local function getHiddenContainer()
+    if gethui then
+        local ok, container = pcall(gethui)
+        if ok and container then return container end
+    end
+    return player:WaitForChild("PlayerGui")
+end
+
+-- =============================================
+-- FEATURES CONFIG
+-- =============================================
+local F = {
+    SilentAim = false,
+    AimKey = Enum.KeyCode.E,
+    AimKeyName = "E",
+    FOV = 120,
+    ShowFOV = true,
+    WallCheck = true,
+    ESP = false,
+    Tracers = false,
+    TracerColor = "Red",
+    MaxDist = 1000,
+}
 
 -- =============================================
 -- PARENT GUI
 -- =============================================
-local parent = gethui and gethui() or CoreGui
+local parent = getHiddenContainer()
 local old = parent:FindFirstChild("NightfallHub")
 if old then old:Destroy() end
 
@@ -166,22 +202,6 @@ local function ClickAnim(btn)
         end)
     end)
 end
-
--- =============================================
--- FEATURES
--- =============================================
-local F = {
-    SilentAim = false,
-    AimKey = Enum.KeyCode.E,   -- hold to aim
-    AimKeyName = "E",
-    FOV = 120,
-    ShowFOV = true,
-    WallCheck = true,
-    ESP = false,
-    Tracers = false,
-    TracerColor = "Red",
-    MaxDist = 1000,
-}
 
 -- =============================================
 -- FOV CIRCLE
@@ -306,7 +326,7 @@ pcall(function()
     setreadonly(mt, true)
 end)
 
--- Also hook RemoteEvent FireServer to overwrite any CFrame/Vector3 shot args
+-- Hook RemoteEvent FireServer to overwrite shot args
 pcall(function()
     local mt = getrawmetatable(game)
     if not mt then return end
@@ -450,7 +470,6 @@ Players.PlayerAdded:Connect(function(p)
 end)
 Players.PlayerRemoving:Connect(destroyESP)
 
--- ESP visibility loop
 RunService.Heartbeat:Connect(function()
     for plr, e in pairs(espObjects) do
         if e.billboard then
@@ -479,11 +498,8 @@ local tracers = {}
 
 local function ensureTracer(plr)
     if tracers[plr] then return tracers[plr] end
-    local beamAtt0 = Instance.new("Attachment")
-    local beamAtt1 = Instance.new("Attachment")
-    local att0, att1
-    att0 = Instance.new("Attachment")
-    att1 = Instance.new("Attachment")
+    local att0 = Instance.new("Attachment")
+    local att1 = Instance.new("Attachment")
     att0.Name = "NFAtt0"
     att1.Name = "NFAtt1"
     att0.Parent = tracerFolder
@@ -955,8 +971,8 @@ local function Slider(parent, txt, default, minVal, maxVal, cb, suffix)
     })
     fillGrad.Parent = fill
     local knob = Instance.new("TextButton")
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = UDim2.new((Value - minVal) / (maxVal - minVal), -8, 0.5, -8)
+    knob.Size = UDim2.new(0, 16((, 0, 16)
+    knob.Position = UDim2.newValue - minVal) / (maxVal - minVal), -8, 0.5, -8)
     knob.BackgroundColor3 = COLORS.WHITE
     knob.Text = ""
     knob.BorderSizePixel = 0
@@ -1182,7 +1198,7 @@ Minimize.MouseButton1Click:Connect(function()
     end
 end)
 
-Close.MouseButton1Click:Connect(function()
+Close.MouseButton1Click: `Connect(function()
     Tween(Main, {Size = UDim2.new(0, 0, 0, 0)}, 0.2)
     task.wait(0.25)
     Gui:Destroy()
@@ -1190,5 +1206,5 @@ end)
 
 print("========================================")
 print("     NIGHTFALL HUB LOADED")
-print("     Made by Ivory")
+print("     Made by Nightfall")
 print("========================================")
