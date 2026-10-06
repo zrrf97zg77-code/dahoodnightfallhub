@@ -1,70 +1,100 @@
 -- =============================================
--- NIGHTFALL HUB — Da Hood
--- Silent Aim + ESP + Tracers
--- WITH HARDENED ANTI-CHEAT BYPASS
+-- NIGHTFALL HUB V2 — Da Hood
+-- Silent Aim + ESP + Tracers + Movement + More
+-- Fixed: No __namecall hook (avoids detector)
 -- =============================================
 
-print("🌙 Nightfall Hub loading...")
+print("🌙 Nightfall Hub V2 loading...")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
-local CoreGui = game:GetService("CoreGui")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local VIM = VirtualInputManager
+local Lighting = game:GetService("Lighting")
 local player = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local mouse = player:GetMouse()
 
 -- =============================================
--- ANTI-DETECTION BYPASS (MUST RUN FIRST)
+-- CONFIG STATE
 -- =============================================
+local F = {
+    -- Aim
+    SilentAim = false,
+    AimKey = Enum.KeyCode.E,
+    AimKeyName = "E",
+    FOV = 120,
+    ShowFOV = true,
+    WallCheck = true,
+    MaxDist = 1000,
+    TeamCheck = true,
 
--- Neutralize grip checker connections + constants
+    -- Visuals
+    ESP = false,
+    ESPHealth = true,
+    ESPDistance = true,
+    ESPBox = false,
+    Tracers = false,
+    TracerColor = "Red",
+    Fullbright = false,
+
+    -- Movement
+    WalkSpeed = 16,
+    WalkSpeedOn = false,
+    JumpPower = 50,
+    JumpPowerOn = false,
+    InfJump = false,
+    Fly = false,
+    FlySpeed = 50,
+    Noclip = false,
+
+    -- Combat
+    NoRecoil = false,
+    InfAmmo = false,
+    HitboxExpander = false,
+    HitboxSize = 6,
+
+    -- Utility
+    AutoCollect = false,
+    AntiAFK = false,
+}
+
+-- =============================================
+-- SAFE BYPASS (getconnections ONLY — no __namecall)
+-- =============================================
 local function neutralizeGripChecker(tool)
     if not tool or not tool:IsA("Tool") then return end
-    
     pcall(function()
         if getconnections then
-            -- Disable the Grip property connection
-            local gripConnections = getconnections(tool:GetPropertyChangedSignal("Grip"))
-            for _, conn in ipairs(gripConnections) do
+            local gripConns = getconnections(tool:GetPropertyChangedSignal("Grip"))
+            for _, conn in ipairs(gripConns) do
                 pcall(function() conn:Disable() end)
-                
-                -- Change CHECKER_4 constant if it's a Lua function
                 local func = conn.Function
                 if func and not iscclosure(func) then
-                    local constants = debug.getconstants(func)
-                    for i, constant in pairs(constants) do
-                        if constant == "CHECKER_4" or (type(constant) == "string" and constant:find("CHECKER")) then
-                            debug.setconstant(func, i, "RandomRemote")
-                            break
+                    pcall(function()
+                        local constants = debug.getconstants(func)
+                        for i, c in pairs(constants) do
+                            if c == "CHECKER_4" then
+                                debug.setconstant(func, i, "RandomRemote")
+                            end
                         end
-                    end
+                    end)
                 end
             end
-            
-            -- Disable the generic Tool.Changed connection
-            local changedConnections = getconnections(tool.Changed)
-            for _, conn in ipairs(changedConnections) do
+            local changedConns = getconnections(tool.Changed)
+            for _, conn in ipairs(changedConns) do
                 pcall(function() conn:Disable() end)
             end
         end
     end)
 end
 
--- Attach guard to current and future tools
 local function attachToolGuard()
     local char = player.Character
     if not char then return end
-    
     local tool = char:FindFirstChildOfClass("Tool")
-    if tool then
-        neutralizeGripChecker(tool)
-    end
-    
+    if tool then neutralizeGripChecker(tool) end
     char.ChildAdded:Connect(function(child)
         if child:IsA("Tool") then
             task.wait(0.02)
@@ -79,60 +109,31 @@ player.CharacterAdded:Connect(function()
 end)
 if player.Character then attachToolGuard() end
 
--- Globally block any CHECKER remote from firing
-pcall(function()
-    if hookmetamethod and getrawmetatable then
-        local mt = getrawmetatable(game)
-        if mt and mt.__namecall then
-            setreadonly(mt, false)
-            local oldNamecall = mt.__namecall
-            mt.__namecall = newcclosure(function(self, ...)
-                local method = getnamecallmethod()
-                if not checkcaller() and method == "FireServer" then
-                    local remoteName = tostring(self.Name or "")
-                    if remoteName:find("CHECKER") or remoteName:find("checker") then
-                        return nil
-                    end
-                end
-                return oldNamecall(self, ...)
+-- Anti-AFK (keeps client alive)
+task.spawn(function()
+    while true do
+        task.wait(60)
+        if F.AntiAFK then
+            pcall(function()
+                game:GetService("VirtualUser"):CaptureController()
+                game:GetService("VirtualUser"):ClickButton1(Vector2.new(0,0))
             end)
-            setreadonly(mt, true)
         end
     end
 end)
 
--- Hidden GUI container
-local function getHiddenContainer()
-    if gethui then
-        local ok, container = pcall(gethui)
-        if ok and container then return container end
-    end
-    return player:WaitForChild("PlayerGui")
-end
-
--- =============================================
--- FEATURES CONFIG
--- =============================================
-local F = {
-    SilentAim = false,
-    AimKey = Enum.KeyCode.E,
-    AimKeyName = "E",
-    FOV = 120,
-    ShowFOV = true,
-    WallCheck = true,
-    ESP = false,
-    Tracers = false,
-    TracerColor = "Red",
-    MaxDist = 1000,
-}
-
--- =============================================
--- PARENT GUI
--- =============================================
-local parent = getHiddenContainer()
+-- Hidden GUI
+local parent
+pcall(function()
+    if gethui then parent = gethui() end
+end)
+parent = parent or player:WaitForChild("PlayerGui")
 local old = parent:FindFirstChild("NightfallHub")
 if old then old:Destroy() end
 
+-- =============================================
+-- GUI SETUP
+-- =============================================
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "NightfallHub"
 Gui.ResetOnSpawn = false
@@ -152,6 +153,7 @@ local COLORS = {
     RED_GLOW  = Color3.fromRGB(255, 90, 110),
     GREEN     = Color3.fromRGB(60, 240, 130),
     YELLOW    = Color3.fromRGB(255, 210, 60),
+    BLUE      = Color3.fromRGB(80, 150, 255),
 }
 
 -- =============================================
@@ -220,7 +222,7 @@ FOVRing.BorderSizePixel = 0
 FOVRing.ZIndex = 100
 FOVRing.Parent = FOVGui
 Corner(FOVRing, 999)
-local fovStroke = Stroke(FOVRing, COLORS.RED, 2, 0.15)
+Stroke(FOVRing, COLORS.RED, 2, 0.15)
 
 RunService.RenderStepped:Connect(function()
     if F.ShowFOV and F.SilentAim then
@@ -234,22 +236,19 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =============================================
--- TARGET FINDER
+-- TARGET FINDER + SILENT AIM
 -- =============================================
 local Target = nil
 local TargetPart = nil
-local TargetHRP = nil
 
 local function isVisible(part)
     if not F.WallCheck then return true end
     local origin = Camera.CFrame.Position
     local dir = (part.Position - origin)
     local ray = Ray.new(origin, dir)
-    local hit, pos = Workspace:FindPartOnRayWithIgnoreList(ray,
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray,
         {player.Character, Target and Target.Character or nil}, false, true)
-    if hit and hit:IsDescendantOf(player.Character) then
-        return true
-    end
+    if hit and hit:IsDescendantOf(player.Character) then return true end
     return hit == nil or hit:IsDescendantOf(part.Parent)
 end
 
@@ -261,11 +260,11 @@ local function inFOV(part)
 end
 
 local function getTarget()
-    local best, bestPart, bestHRP, bestDist = nil, nil, nil, math.huge
+    local best, bestPart, bestDist = nil, nil, math.huge
     local myChar = player.Character
-    if not myChar then return nil, nil, nil end
+    if not myChar then return nil, nil end
     local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return nil, nil, nil end
+    if not myRoot then return nil, nil end
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character then
@@ -279,83 +278,37 @@ local function getTarget()
                         bestDist = dist
                         best = plr
                         bestPart = head
-                        bestHRP = hrp
                     end
                 end
             end
         end
     end
-    return best, bestPart, bestHRP
+    return best, bestPart
 end
 
 RunService.RenderStepped:Connect(function()
     if not F.SilentAim or not UserInputService:IsKeyDown(F.AimKey) then
-        Target, TargetPart, TargetHRP = nil, nil, nil
+        Target, TargetPart = nil, nil
         return
     end
-    local plr, part, hrp = getTarget()
-    Target, TargetPart, TargetHRP = plr, part, hrp
+    Target, TargetPart = getTarget()
 end)
 
--- =============================================
--- SILENT AIM (Mouse.Hit redirect)
--- =============================================
+-- Silent Aim via mouse metatable (safe — only __index for mouse)
 pcall(function()
     local mt = getrawmetatable(game)
     if not mt then return end
-    setreadonly(mt, false)
     local oldIndex = mt.__index
-    local oldNewIndex = mt.__newindex
-
+    setreadonly(mt, false)
     mt.__index = newcclosure(function(self, key)
-        if not checkcaller() and F.SilentAim and TargetPart and self == mouse then
+        if checkcaller() then return oldIndex(self, key) end
+        if F.SilentAim and TargetPart and self == mouse then
             if key == "Hit" then return CFrame.new(TargetPart.Position) end
             if key == "Target" then return TargetPart end
             if key == "X" then return Camera:WorldToViewportPoint(TargetPart.Position).X end
             if key == "Y" then return Camera:WorldToViewportPoint(TargetPart.Position).Y end
         end
         return oldIndex(self, key)
-    end)
-
-    mt.__newindex = newcclosure(function(self, key, val)
-        if not checkcaller() and F.SilentAim and TargetPart and self == mouse then
-            if key == "Hit" or key == "Target" then return end
-        end
-        return oldNewIndex(self, key, val)
-    end)
-    setreadonly(mt, true)
-end)
-
--- Hook RemoteEvent FireServer to overwrite shot args
-pcall(function()
-    local mt = getrawmetatable(game)
-    if not mt then return end
-    setreadonly(mt, false)
-    local oldNamecall = mt.__namecall
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if not checkcaller() and F.SilentAim and TargetPart and method == "FireServer" then
-            local nm = string.lower(tostring(self.Name or ""))
-            if string.find(nm, "shoot", 1, true) or string.find(nm, "gun", 1, true) or
-               string.find(nm, "hit", 1, true) then
-                local args = {...}
-                local new = table.pack(table.unpack(args))
-                local changed = false
-                for i, v in ipairs(new) do
-                    if typeof(v) == "CFrame" then
-                        new[i] = CFrame.new(TargetPart.Position)
-                        changed = true
-                    elseif typeof(v) == "Vector3" then
-                        new[i] = TargetPart.Position
-                        changed = true
-                    end
-                end
-                if changed then
-                    return oldNamecall(self, table.unpack(new, 1, new.n))
-                end
-            end
-        end
-        return oldNamecall(self, ...)
     end)
     setreadonly(mt, true)
 end)
@@ -369,6 +322,7 @@ local function destroyESP(plr)
     local e = espObjects[plr]
     if e then
         if e.billboard then pcall(function() e.billboard:Destroy() end) end
+        if e.box then pcall(function() e.box:Destroy() end) end
         if e.connection then pcall(function() e.connection:Disconnect() end) end
         espObjects[plr] = nil
     end
@@ -383,7 +337,6 @@ local function createESP(plr)
     billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.5, 0)
     billboard.AlwaysOnTop = false
     billboard.MaxDistance = F.MaxDist
-    billboard.Adornee = nil
     billboard.Parent = Gui
 
     local holder = Instance.new("Frame")
@@ -393,7 +346,6 @@ local function createESP(plr)
 
     local nameLbl = Text(holder, "", 13, true, COLORS.WHITE)
     nameLbl.Size = UDim2.new(1, 0, 0, 16)
-    nameLbl.Position = UDim2.new(0, 0, 0, 0)
     nameLbl.TextXAlignment = Enum.TextXAlignment.Center
     nameLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
     nameLbl.TextStrokeTransparency = 0.2
@@ -422,9 +374,7 @@ local function createESP(plr)
 
     local entry = {
         billboard = billboard,
-        holder = holder,
         nameLbl = nameLbl,
-        healthBg = healthBg,
         healthFill = healthFill,
         distLbl = distLbl,
         plr = plr,
@@ -439,19 +389,19 @@ local function createESP(plr)
         end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
-        if hrp then
-            billboard.Adornee = hrp
-        end
+        if hrp then billboard.Adornee = hrp end
         if hum then
-            local hp = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+            local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
             healthFill.Size = UDim2.new(hp, 0, 1, 0)
             healthFill.BackgroundColor3 = hp > 0.6 and COLORS.GREEN or (hp > 0.3 and COLORS.YELLOW or COLORS.RED)
+            healthBg.Visible = F.ESPHealth
         end
         nameLbl.Text = plr.Name
         local myChar = player.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if hrp and myRoot then
             distLbl.Text = string.format("%d studs", math.floor((hrp.Position - myRoot.Position).Magnitude))
+            distLbl.Visible = F.ESPDistance
         end
     end
 
@@ -500,8 +450,6 @@ local function ensureTracer(plr)
     if tracers[plr] then return tracers[plr] end
     local att0 = Instance.new("Attachment")
     local att1 = Instance.new("Attachment")
-    att0.Name = "NFAtt0"
-    att1.Name = "NFAtt1"
     att0.Parent = tracerFolder
     att1.Parent = tracerFolder
     local beam = Instance.new("Beam")
@@ -512,7 +460,6 @@ local function ensureTracer(plr)
     beam.FaceCamera = true
     beam.LightEmission = 1
     beam.LightInfluence = 0
-    beam.Segments = 1
     beam.Enabled = false
     beam.Color = ColorSequence.new(TRACER_MAP[F.TracerColor] or TRACER_MAP.Red)
     beam.Transparency = NumberSequence.new(0.15)
@@ -557,7 +504,117 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =============================================
--- UI
+-- MOVEMENT & MISC LOOPS
+-- =============================================
+local flyBV, flyBG
+local noclipConn
+
+RunService.Heartbeat:Connect(function()
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    -- WalkSpeed
+    if F.WalkSpeedOn then
+        hum.WalkSpeed = F.WalkSpeed
+    end
+
+    -- JumpPower
+    if F.JumpPowerOn then
+        hum.JumpPower = F.JumpPower
+        hum.UseJumpPower = true
+    end
+
+    -- Fly
+    if F.Fly then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if not flyBV then
+                flyBV = Instance.new("BodyVelocity")
+                flyBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                flyBV.Velocity = Vector3.zero
+                flyBV.Parent = hrp
+            end
+            local moveDir = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir += Vector3.new(0,1,0) end
+            flyBV.Velocity = moveDir * F.FlySpeed
+        end
+    else
+        if flyBV then flyBV:Destroy() flyBV = nil end
+    end
+
+    -- Noclip
+    if F.Noclip then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end
+
+    -- Weapon mods
+    if F.NoRecoil or F.InfAmmo then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, v in ipairs(tool:GetDescendants()) do
+                    if F.NoRecoil and v.Name:lower():find("recoil") and v:IsA("ValueBase") then
+                        pcall(function() v.Value = 0 end)
+                    end
+                    if F.InfAmmo and v.Name == "Ammo" and v:IsA("IntValue") then
+                        pcall(function() v.Value = 9999 end)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Hitbox expander
+    if F.HitboxExpander then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp and hrp.Size ~= Vector3.new(F.HitboxSize, F.HitboxSize, F.HitboxSize) then
+                    hrp.Size = Vector3.new(F.HitboxSize, F.HitboxSize, F.HitboxSize)
+                    hrp.Transparency = 0.7
+                end
+            end
+        end
+    end
+end)
+
+-- Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if F.InfJump then
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end
+    end
+end)
+
+-- Fullbright
+local function setFullbright(on)
+    if on then
+        Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+        Lighting.Brightness = 3
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+    else
+        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        Lighting.Brightness = 1
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = true
+    end
+end
+
+-- =============================================
+-- UI BUILD
 -- =============================================
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "NfToggle"
@@ -573,25 +630,6 @@ ToggleBtn.AutoButtonColor = false
 ToggleBtn.Parent = Gui
 Corner(ToggleBtn, 12)
 Stroke(ToggleBtn, COLORS.RED, 2)
-
-local toggleGlow = Instance.new("ImageLabel")
-toggleGlow.Size = UDim2.new(1, 30, 1, 30)
-toggleGlow.Position = UDim2.new(0, -15, 0, -15)
-toggleGlow.BackgroundTransparency = 1
-toggleGlow.Image = "rbxassetid://5028857084"
-toggleGlow.ImageColor3 = COLORS.RED
-toggleGlow.ImageTransparency = 0.5
-toggleGlow.ZIndex = ToggleBtn.ZIndex - 1
-toggleGlow.Parent = ToggleBtn
-
-task.spawn(function()
-    while ToggleBtn and ToggleBtn.Parent do
-        Tween(toggleGlow, {ImageTransparency = 0.15}, 1.6, Enum.EasingStyle.Sine)
-        task.wait(1.6)
-        Tween(toggleGlow, {ImageTransparency = 0.55}, 1.6, Enum.EasingStyle.Sine)
-        task.wait(1.6)
-    end
-end)
 
 local toggleDrag = {active=false, moved=false, startPos=nil, startMouse=nil}
 ToggleBtn.InputBegan:Connect(function(input)
@@ -617,11 +655,11 @@ UserInputService.InputChanged:Connect(function(input)
         toggleDrag.startPos.Y.Scale, toggleDrag.startPos.Y.Offset + d.Y)
 end)
 
--- Main panel
+-- Main Panel
 local Main = Instance.new("Frame")
 Main.Name = "NfMain"
-Main.Size = UDim2.new(0, 520, 0, 360)
-Main.Position = UDim2.new(0.5, -260, 0.5, -180)
+Main.Size = UDim2.new(0, 560, 0, 400)
+Main.Position = UDim2.new(0.5, -280, 0.5, -200)
 Main.BackgroundColor3 = COLORS.BLACK
 Main.BorderSizePixel = 0
 Main.Visible = false
@@ -639,30 +677,13 @@ mainGrad.Color = ColorSequence.new({
 mainGrad.Rotation = 135
 mainGrad.Parent = Main
 
-local shadow = Instance.new("ImageLabel")
-shadow.Size = UDim2.new(1, 60, 1, 60)
-shadow.Position = UDim2.new(0, -30, 0, -30)
-shadow.BackgroundTransparency = 1
-shadow.Image = "rbxassetid://5028857084"
-shadow.ImageColor3 = COLORS.RED
-shadow.ImageTransparency = 0.65
-shadow.ZIndex = Main.ZIndex - 1
-shadow.Parent = Main
-
+-- Header
 local Top = Instance.new("Frame")
 Top.Size = UDim2.new(1, 0, 0, 46)
 Top.BackgroundColor3 = COLORS.DARK
 Top.BorderSizePixel = 0
 Top.Parent = Main
 Corner(Top, 16)
-
-local topLine = Instance.new("Frame")
-topLine.Size = UDim2.new(1, -24, 0, 1)
-topLine.Position = UDim2.new(0, 12, 1, -1)
-topLine.BackgroundColor3 = COLORS.RED
-topLine.BackgroundTransparency = 0.5
-topLine.BorderSizePixel = 0
-topLine.Parent = Top
 
 local logoDot = Instance.new("Frame")
 logoDot.Size = UDim2.fromOffset(8, 8)
@@ -672,17 +693,7 @@ logoDot.BorderSizePixel = 0
 logoDot.Parent = Top
 Corner(logoDot, 20)
 
-local logoGlow = Instance.new("ImageLabel")
-logoGlow.Size = UDim2.new(1, 20, 1, 20)
-logoGlow.Position = UDim2.new(0, -10, 0, -10)
-logoGlow.BackgroundTransparency = 1
-logoGlow.Image = "rbxassetid://5028857084"
-logoGlow.ImageColor3 = COLORS.RED
-logoGlow.ImageTransparency = 0.3
-logoGlow.ZIndex = logoDot.ZIndex - 1
-logoGlow.Parent = logoDot
-
-local Title = Text(Top, "NIGHTFALL", 18, true)
+local Title = Text(Top, "NIGHTFALL V2", 18, true)
 Title.Position = UDim2.new(0, 30, 0, 5)
 Title.Size = UDim2.new(0, 200, 0, 22)
 
@@ -729,7 +740,7 @@ ToggleBtn.MouseButton1Click:Connect(function()
     Main.Visible = not Main.Visible
     if Main.Visible then
         Main.Size = UDim2.new(0, 0, 0, 0)
-        Tween(Main, {Size = UDim2.new(0, 520, 0, 360)}, 0.28)
+        Tween(Main, {Size = UDim2.new(0, 560, 0, 400)}, 0.28)
         Tween(ToggleBtn, {BackgroundColor3 = COLORS.RED, TextColor3 = COLORS.BLACK})
     else
         Tween(ToggleBtn, {BackgroundColor3 = COLORS.BLACK, TextColor3 = COLORS.WHITE})
@@ -738,7 +749,7 @@ end)
 
 -- Sidebar
 local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 105, 1, -58)
+Sidebar.Size = UDim2.new(0, 115, 1, -58)
 Sidebar.Position = UDim2.new(0, 8, 0, 54)
 Sidebar.BackgroundColor3 = COLORS.DARK
 Sidebar.BackgroundTransparency = 0.15
@@ -759,8 +770,8 @@ Pad.PaddingRight = UDim.new(0, 4)
 Pad.Parent = Sidebar
 
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -121, 1, -58)
-Content.Position = UDim2.new(0, 113, 0, 54)
+Content.Size = UDim2.new(1, -131, 1, -58)
+Content.Position = UDim2.new(0, 123, 0, 54)
 Content.BackgroundColor3 = COLORS.DARK
 Content.BackgroundTransparency = 0.15
 Content.BorderSizePixel = 0
@@ -768,6 +779,7 @@ Content.Parent = Main
 Corner(Content, 12)
 Stroke(Content, Color3.fromRGB(38, 34, 42), 1)
 
+-- Page creator
 local Pages = {}
 local function CreatePage(name)
     local page = Instance.new("ScrollingFrame")
@@ -797,7 +809,6 @@ local function Section(parent, txt)
     wrap.Size = UDim2.new(1, 0, 0, 20)
     wrap.BackgroundTransparency = 1
     wrap.Parent = parent
-
     local l = Instance.new("TextLabel")
     l.BackgroundTransparency = 1
     l.Text = txt
@@ -807,7 +818,6 @@ local function Section(parent, txt)
     l.TextXAlignment = Enum.TextXAlignment.Left
     l.Size = UDim2.new(1, 0, 0, 12)
     l.Parent = wrap
-
     local line = Instance.new("Frame")
     line.Size = UDim2.new(1, 0, 0, 1)
     line.Position = UDim2.new(0, 0, 0, 16)
@@ -971,8 +981,8 @@ local function Slider(parent, txt, default, minVal, maxVal, cb, suffix)
     })
     fillGrad.Parent = fill
     local knob = Instance.new("TextButton")
-    knob.Size = UDim2.new(0, 16((, 0, 16)
-    knob.Position = UDim2.newValue - minVal) / (maxVal - minVal), -8, 0.5, -8)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = UDim2.new((Value - minVal) / (maxVal - minVal), -8, 0.5, -8)
     knob.BackgroundColor3 = COLORS.WHITE
     knob.Text = ""
     knob.BorderSizePixel = 0
@@ -1009,16 +1019,19 @@ local function Slider(parent, txt, default, minVal, maxVal, cb, suffix)
 end
 
 -- =============================================
--- PAGES
+-- TABS & PAGES
 -- =============================================
 local MainPage = CreatePage("Main")
 local AimPage = CreatePage("Aim")
 local VisualsPage = CreatePage("Visuals")
+local MovementPage = CreatePage("Movement")
+local CombatPage = CreatePage("Combat")
+local MiscPage = CreatePage("Misc")
 local ConfigPage = CreatePage("Config")
 
--- Main
+-- ===== MAIN =====
 Section(MainPage, "NIGHTFALL")
-local mtL = Text(MainPage, "NIGHTFALL HUB", 17, true)
+local mtL = Text(MainPage, "NIGHTFALL HUB V2", 17, true)
 mtL.Size = UDim2.new(1, 0, 0, 24)
 mtL.TextXAlignment = Enum.TextXAlignment.Center
 
@@ -1039,9 +1052,12 @@ statusLbl.Size = UDim2.new(1, -10, 0, 16)
 task.spawn(function()
     while Gui and Gui.Parent do
         local active = {}
-        if F.SilentAim then table.insert(active, "Silent Aim") end
+        if F.SilentAim then table.insert(active, "Aim") end
         if F.ESP then table.insert(active, "ESP") end
         if F.Tracers then table.insert(active, "Tracers") end
+        if F.Fly then table.insert(active, "Fly") end
+        if F.Noclip then table.insert(active, "Noclip") end
+        if F.Fullbright then table.insert(active, "Bright") end
         if #active == 0 then
             statusLbl.Text = "Active: None"
             statusLbl.TextColor3 = COLORS.GRAY
@@ -1053,27 +1069,24 @@ task.spawn(function()
     end
 end)
 
--- Aim
+-- ===== AIM =====
 Section(AimPage, "SILENT AIM")
 Toggle(AimPage, "Enable Silent Aim", F.SilentAim, function(s)
     F.SilentAim = s
-    if not s then Target, TargetPart, TargetHRP = nil, nil, nil end
+    if not s then Target, TargetPart = nil, nil end
 end)
-Button(AimPage, "Aim Key: " .. F.AimKeyName .. " (tap to change)", function() end)
 Slider(AimPage, "FOV Radius", F.FOV, 20, 500, function(v) F.FOV = v end, "px")
 Toggle(AimPage, "Show FOV Circle", F.ShowFOV, function(s) F.ShowFOV = s end)
 Toggle(AimPage, "Wall Check", F.WallCheck, function(s) F.WallCheck = s end)
+Toggle(AimPage, "Team Check", F.TeamCheck, function(s) F.TeamCheck = s end)
 Slider(AimPage, "Max Distance", F.MaxDist, 50, 3000, function(v) F.MaxDist = v end, " studs")
 
 Section(AimPage, "INFO")
-local info1 = Text(AimPage, "Hold your Aim Key to lock onto the nearest target in FOV.", 9, false, COLORS.GRAY)
+local info1 = Text(AimPage, "Hold E to lock onto nearest target in FOV.", 9, false, COLORS.GRAY)
 info1.Size = UDim2.new(1, -10, 0, 14)
 info1.TextWrapped = true
-local info2 = Text(AimPage, "Wall Check: skips targets behind walls.", 9, false, COLORS.GRAY)
-info2.Size = UDim2.new(1, -10, 0, 14)
-info2.TextWrapped = true
 
--- Visuals
+-- ===== VISUALS =====
 Section(VisualsPage, "PLAYER ESP")
 Toggle(VisualsPage, "Enable ESP", F.ESP, function(s)
     F.ESP = s
@@ -1082,6 +1095,8 @@ Toggle(VisualsPage, "Enable ESP", F.ESP, function(s)
         for plr in pairs(espObjects) do destroyESP(plr) end
     end
 end)
+Toggle(VisualsPage, "Show Health Bar", F.ESPHealth, function(s) F.ESPHealth = s end)
+Toggle(VisualsPage, "Show Distance", F.ESPDistance, function(s) F.ESPDistance = s end)
 
 Section(VisualsPage, "TRACERS")
 Toggle(VisualsPage, "Enable Tracers", F.Tracers, function(s) F.Tracers = s end)
@@ -1089,20 +1104,99 @@ CycleButton(VisualsPage, "Tracer Color", {"Red", "White", "Green", "Blue", "Cyan
     F.TracerColor = v
 end)
 
--- Config
+Section(VisualsPage, "ENVIRONMENT")
+Toggle(VisualsPage, "Fullbright", F.Fullbright, function(s)
+    F.Fullbright = s
+    setFullbright(s)
+end)
+
+-- ===== MOVEMENT =====
+Section(MovementPage, "SPEED")
+Toggle(MovementPage, "Enable WalkSpeed", false, function(s)
+    F.WalkSpeedOn = s
+end)
+Slider(MovementPage, "WalkSpeed", 16, 16, 500, function(v) F.WalkSpeed = v end, " spd")
+
+Section(MovementPage, "JUMP")
+Toggle(MovementPage, "Enable JumpPower", false, function(s)
+    F.JumpPowerOn = s
+end)
+Slider(MovementPage, "JumpPower", 50, 50, 500, function(v) F.JumpPower = v end, " jmp")
+Toggle(MovementPage, "Infinite Jump", false, function(s) F.InfJump = s end)
+
+Section(MovementPage, "FLIGHT")
+Toggle(MovementPage, "Enable Fly", false, function(s) F.Fly = s end)
+Slider(MovementPage, "Fly Speed", 50, 10, 300, function(v) F.FlySpeed = v end, " spd")
+
+Section(MovementPage, "NOCLIP")
+Toggle(MovementPage, "Enable Noclip", false, function(s) F.Noclip = s end)
+
+-- ===== COMBAT =====
+Section(CombatPage, "WEAPON MODS")
+Toggle(CombatPage, "No Recoil", false, function(s) F.NoRecoil = s end)
+Toggle(CombatPage, "Infinite Ammo", false, function(s) F.InfAmmo = s end)
+
+Section(CombatPage, "HITBOX")
+Toggle(CombatPage, "Hitbox Expander", false, function(s)
+    F.HitboxExpander = s
+    if not s then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                end
+            end
+        end
+    end
+end)
+Slider(CombatPage, "Hitbox Size", 6, 2, 20, function(v) F.HitboxSize = v end, " studs")
+
+-- ===== MISC =====
+Section(MiscPage, "UTILITY")
+Toggle(MiscPage, "Auto Collect Items", false, function(s) F.AutoCollect = s end)
+Toggle(MiscPage, "Anti-AFK", false, function(s) F.AntiAFK = s end)
+
+Section(MiscPage, "TELEPORT")
+Button(MiscPage, "Teleport to Random Player", function()
+    local others = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            table.insert(others, plr)
+        end
+    end
+    if #others > 0 then
+        local t = others[math.random(1, #others)]
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        local thrp = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+        if hrp and thrp then
+            hrp.CFrame = thrp.CFrame + Vector3.new(0, 3, 0)
+        end
+    end
+end)
+
+Section(MiscPage, "INFO")
+local info2 = Text(MiscPage, "Use features responsibly.", 9, false, COLORS.GRAY)
+info2.Size = UDim2.new(1, -10, 0, 14)
+
+-- ===== CONFIG =====
 Section(ConfigPage, "CONFIG")
 Button(ConfigPage, "Unload UI", function()
     Gui:Destroy()
 end)
 
 -- =============================================
--- TABS
+-- TAB SWITCHING
 -- =============================================
 local Tabs = {
     {name="MAIN", icon="🏠", page=MainPage},
     {name="AIM", icon="🎯", page=AimPage},
     {name="VISUALS", icon="👁", page=VisualsPage},
-    {name="CONFIG", icon="⚙", page=ConfigPage},
+    {name="MOVE", icon="🏃", page=MovementPage},
+    {name="COMBAT", icon="⚔", page=CombatPage},
+    {name="MISC", icon="⚙", page=MiscPage},
+    {name="CONFIG", icon="🔧", page=ConfigPage},
 }
 
 local indicator = Instance.new("Frame")
@@ -1156,7 +1250,9 @@ for _, d in ipairs(Tabs) do
 end
 SelectTab(Tabs[1].button, Tabs[1].page)
 
--- Dragging
+-- =============================================
+-- DRAGGING & MINIMIZE
+-- =============================================
 local Drag, DStart, SPos = false, nil, nil
 Top.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1178,33 +1274,30 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Minimize
 local Min = false
 Minimize.MouseButton1Click:Connect(function()
     Min = not Min
     if Min then
         Sidebar.Visible = false
         Content.Visible = false
-        shadow.Visible = false
-        Tween(Main, {Size = UDim2.new(0, 520, 0, 46)})
+        Tween(Main, {Size = UDim2.new(0, 560, 0, 46)})
         Minimize.Text = "+"
     else
-        Tween(Main, {Size = UDim2.new(0, 520, 0, 360)})
+        Tween(Main, {Size = UDim2.new(0, 560, 0, 400)})
         task.wait(0.15)
         Sidebar.Visible = true
         Content.Visible = true
-        shadow.Visible = true
         Minimize.Text = "—"
     end
 end)
 
-Close.MouseButton1Click: `Connect(function()
+Close.MouseButton1Click:Connect(function()
     Tween(Main, {Size = UDim2.new(0, 0, 0, 0)}, 0.2)
     task.wait(0.25)
     Gui:Destroy()
 end)
 
 print("========================================")
-print("     NIGHTFALL HUB LOADED")
-print("     Made by Nightfall")
+print("     NIGHTFALL HUB V2 LOADED")
+print("     7 tabs • Fixed bypass")
 print("========================================")
