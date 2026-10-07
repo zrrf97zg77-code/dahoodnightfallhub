@@ -1,6 +1,6 @@
 --// IVORY'S CAMLOCK
---// Mobile LocalScript
---// Put inside StarterPlayer > StarterPlayerScripts
+--// FINAL MOBILE VERSION
+--// LocalScript -> StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,7 +16,12 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local PREDICTION = 0.12
 local MAX_DISTANCE = 300
 local FOV_ANGLE = 180
-local SMOOTHNESS = 0.18
+
+-- Lower = smoother
+local SMOOTHNESS = 0.16
+
+-- How far finger must move before it becomes a drag
+local DRAG_THRESHOLD = 14
 
 --==================================================
 -- STATE
@@ -25,6 +30,7 @@ local SMOOTHNESS = 0.18
 local FeatureEnabled = false
 local CamlockEnabled = false
 local TracerEnabled = false
+
 local CurrentTarget = nil
 
 --==================================================
@@ -34,26 +40,36 @@ local CurrentTarget = nil
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "IvorysCamlock"
 Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = true
+
+-- IMPORTANT:
+-- Keep GUI coordinates aligned with WorldToScreenPoint()
+Gui.IgnoreGuiInset = false
+
 Gui.DisplayOrder = 1000
 Gui.Parent = PlayerGui
 
 --==================================================
--- GUI TOGGLE
+-- GUI OPEN/CLOSE BUTTON
 --==================================================
 
 local GuiToggle = Instance.new("TextButton")
-GuiToggle.Name = "GuiToggle"
+
+GuiToggle.Name = "IvoryToggle"
 GuiToggle.Size = UDim2.fromOffset(58, 58)
-GuiToggle.Position = UDim2.fromOffset(20, 220)
+GuiToggle.Position = UDim2.fromOffset(20, 215)
+
 GuiToggle.BackgroundColor3 = Color3.fromRGB(25,25,30)
 GuiToggle.BorderSizePixel = 0
+
 GuiToggle.Text = "IVORY"
 GuiToggle.TextColor3 = Color3.fromRGB(245,245,245)
 GuiToggle.Font = Enum.Font.GothamBold
 GuiToggle.TextSize = 12
+
+GuiToggle.AutoButtonColor = true
 GuiToggle.Active = true
 GuiToggle.ZIndex = 200
+
 GuiToggle.Parent = Gui
 
 local GuiCorner = Instance.new("UICorner")
@@ -70,13 +86,15 @@ GuiStroke.Parent = GuiToggle
 --==================================================
 
 local Main = Instance.new("Frame")
+
 Main.Name = "Main"
 Main.Size = UDim2.fromOffset(190,155)
 Main.Position = UDim2.new(1,-210,0.5,-75)
+
 Main.BackgroundColor3 = Color3.fromRGB(20,20,25)
 Main.BackgroundTransparency = 0.05
 Main.BorderSizePixel = 0
-Main.Visible = true
+
 Main.Parent = Gui
 
 local MainCorner = Instance.new("UICorner")
@@ -94,33 +112,37 @@ MainStroke.Parent = Main
 --==================================================
 
 local Title = Instance.new("TextLabel")
+
 Title.Size = UDim2.new(1,-10,0,32)
 Title.Position = UDim2.fromOffset(5,5)
+
 Title.BackgroundTransparency = 1
+
 Title.Text = "Ivory's Camlock"
 Title.TextColor3 = Color3.fromRGB(245,245,245)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 17
+
 Title.Parent = Main
 
 --==================================================
 -- BUTTON CREATOR
 --==================================================
 
-local function MakeButton(name,text,y)
+local function CreateButton(Name,Text,Y)
 
 	local Button = Instance.new("TextButton")
 
-	Button.Name = name
+	Button.Name = Name
 	Button.Size = UDim2.new(1,-20,0,34)
-	Button.Position = UDim2.fromOffset(10,y)
+	Button.Position = UDim2.fromOffset(10,Y)
 
 	Button.BackgroundColor3 =
 		Color3.fromRGB(43,43,50)
 
 	Button.BorderSizePixel = 0
 
-	Button.Text = text
+	Button.Text = Text
 	Button.TextColor3 =
 		Color3.fromRGB(240,240,240)
 
@@ -142,29 +164,34 @@ local function MakeButton(name,text,y)
 end
 
 --==================================================
--- SETTINGS BUTTONS
+-- PANEL BUTTONS
 --==================================================
 
-local FeatureButton = MakeButton(
+local FeatureButton = CreateButton(
 	"FeatureButton",
 	"CAMLOCK FEATURE  •  OFF",
 	42
 )
 
-local TracerButton = MakeButton(
+local TracerButton = CreateButton(
 	"TracerButton",
 	"TRACER  •  OFF",
 	82
 )
 
 local Status = Instance.new("TextLabel")
+
 Status.Size = UDim2.new(1,-20,0,22)
 Status.Position = UDim2.fromOffset(10,122)
+
 Status.BackgroundTransparency = 1
+
 Status.Text = "READY"
 Status.TextColor3 = Color3.fromRGB(165,165,170)
+
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 11
+
 Status.Parent = Main
 
 --==================================================
@@ -174,10 +201,12 @@ Status.Parent = Main
 local CamlockButton = Instance.new("TextButton")
 
 CamlockButton.Name = "CamlockButton"
-CamlockButton.Size = UDim2.fromOffset(135,50)
+
+CamlockButton.Size =
+	UDim2.fromOffset(145,52)
 
 CamlockButton.Position =
-	UDim2.new(0.5,-67,0.78,0)
+	UDim2.new(0.5,-72,0.78,0)
 
 CamlockButton.BackgroundColor3 =
 	Color3.fromRGB(25,25,30)
@@ -197,6 +226,7 @@ CamlockButton.TextSize = 13
 
 CamlockButton.Active = true
 CamlockButton.Visible = false
+
 CamlockButton.ZIndex = 200
 
 CamlockButton.Parent = Gui
@@ -216,28 +246,48 @@ CamStroke.Parent = CamlockButton
 
 local Tracer = Instance.new("Frame")
 
-Tracer.Name = "Tracer"
-Tracer.AnchorPoint = Vector2.new(0,0.5)
-Tracer.BackgroundColor3 = Color3.fromRGB(240,240,245)
+Tracer.Name = "TargetTracer"
+
+Tracer.AnchorPoint =
+	Vector2.new(0,0.5)
+
+Tracer.BackgroundColor3 =
+	Color3.fromRGB(245,245,245)
+
 Tracer.BorderSizePixel = 0
-Tracer.Size = UDim2.fromOffset(0,2)
+
+Tracer.Size =
+	UDim2.fromOffset(0,2)
+
 Tracer.Visible = false
-Tracer.ZIndex = 100
+Tracer.ZIndex = 50
+
 Tracer.Parent = Gui
 
 local TracerCorner = Instance.new("UICorner")
 TracerCorner.CornerRadius = UDim.new(1,0)
 TracerCorner.Parent = Tracer
 
+--==================================================
+-- TARGET DOT
+--==================================================
+
 local TargetDot = Instance.new("Frame")
 
 TargetDot.Name = "TargetDot"
-TargetDot.Size = UDim2.fromOffset(12,12)
-TargetDot.AnchorPoint = Vector2.new(0.5,0.5)
+
+TargetDot.AnchorPoint =
+	Vector2.new(0.5,0.5)
+
+TargetDot.Size =
+	UDim2.fromOffset(12,12)
+
 TargetDot.BackgroundTransparency = 1
 TargetDot.BorderSizePixel = 0
+
 TargetDot.Visible = false
-TargetDot.ZIndex = 101
+TargetDot.ZIndex = 51
+
 TargetDot.Parent = Gui
 
 local DotCorner = Instance.new("UICorner")
@@ -246,43 +296,52 @@ DotCorner.Parent = TargetDot
 
 local DotStroke = Instance.new("UIStroke")
 DotStroke.Thickness = 2
-DotStroke.Color = Color3.fromRGB(240,240,245)
+DotStroke.Color = Color3.fromRGB(245,245,245)
 DotStroke.Parent = TargetDot
 
 --==================================================
--- TARGET CHECK
+-- TARGET VALIDATION
 --==================================================
 
-local function ValidTarget(root)
+local function IsValidTarget(Root)
 
-	if not root or not root.Parent then
+	if not Root then
 		return false
 	end
 
-	local humanoid =
-		root.Parent:FindFirstChildOfClass("Humanoid")
+	if not Root.Parent then
+		return false
+	end
 
-	return humanoid ~= nil and humanoid.Health > 0
+	local Humanoid =
+		Root.Parent:FindFirstChildOfClass("Humanoid")
+
+	if not Humanoid then
+		return false
+	end
+
+	return Humanoid.Health > 0
 end
 
 --==================================================
 -- PREDICTION
 --==================================================
 
-local function GetPredictedPosition(root)
+local function GetPredictedPosition(Root)
 
-	return root.Position +
-		root.AssemblyLinearVelocity * PREDICTION
+	return Root.Position +
+		(Root.AssemblyLinearVelocity * PREDICTION)
 
 end
 
 --==================================================
--- FIND TARGET
+-- TARGET SELECTION
 --==================================================
 
 local function FindTarget()
 
-	local Camera = workspace.CurrentCamera
+	local Camera =
+		workspace.CurrentCamera
 
 	if not Camera then
 		return nil
@@ -297,7 +356,7 @@ local function FindTarget()
 	local BestTarget = nil
 	local BestScreenDistance = math.huge
 
-	-- 180 degrees
+	-- Exactly 180 degrees
 	local MinimumDot =
 		math.cos(math.rad(FOV_ANGLE / 2))
 
@@ -305,7 +364,8 @@ local function FindTarget()
 
 		if Player ~= LocalPlayer then
 
-			local Character = Player.Character
+			local Character =
+				Player.Character
 
 			if Character then
 
@@ -337,7 +397,7 @@ local function FindTarget()
 						if Dot >= MinimumDot then
 
 							local ScreenPosition,Visible =
-								Camera:WorldToViewportPoint(
+								Camera:WorldToScreenPoint(
 									Root.Position
 								)
 
@@ -346,8 +406,8 @@ local function FindTarget()
 
 								local Center =
 									Vector2.new(
-										Camera.ViewportSize.X/2,
-										Camera.ViewportSize.Y/2
+										Gui.AbsoluteSize.X / 2,
+										Gui.AbsoluteSize.Y / 2
 									)
 
 								local TargetScreen =
@@ -365,7 +425,8 @@ local function FindTarget()
 									BestScreenDistance =
 										ScreenDistance
 
-									BestTarget = Root
+									BestTarget =
+										Root
 								end
 							end
 						end
@@ -389,11 +450,11 @@ local function HideTracer()
 
 end
 
-local function DrawTracer(Target)
+local function UpdateTracer(Target)
 
 	if not FeatureEnabled
 		or not TracerEnabled
-		or not ValidTarget(Target) then
+		or not IsValidTarget(Target) then
 
 		HideTracer()
 		return
@@ -407,33 +468,35 @@ local function DrawTracer(Target)
 		return
 	end
 
-	local WorldPosition =
-		GetPredictedPosition(Target)
-
+	-- Use WorldToScreenPoint so the coordinates
+	-- match the ScreenGui's coordinate system.
 	local ScreenPosition,Visible =
-		Camera:WorldToViewportPoint(
-			WorldPosition
+		Camera:WorldToScreenPoint(
+			GetPredictedPosition(Target)
 		)
 
-	if not Visible or ScreenPosition.Z <= 0 then
+	if not Visible
+		or ScreenPosition.Z <= 0 then
+
 		HideTracer()
 		return
 	end
 
+	-- Actual center of the player's screen.
 	local Start =
 		Vector2.new(
-			Camera.ViewportSize.X/2,
-			Camera.ViewportSize.Y/2
+			Gui.AbsoluteSize.X / 2,
+			Gui.AbsoluteSize.Y / 2
 		)
 
-	local End =
+	local Finish =
 		Vector2.new(
 			ScreenPosition.X,
 			ScreenPosition.Y
 		)
 
 	local Difference =
-		End-Start
+		Finish - Start
 
 	local Length =
 		Difference.Magnitude
@@ -443,6 +506,7 @@ local function DrawTracer(Target)
 		return
 	end
 
+	-- Draw from exact screen center
 	Tracer.Position =
 		UDim2.fromOffset(
 			Start.X,
@@ -467,15 +531,15 @@ local function DrawTracer(Target)
 
 	TargetDot.Position =
 		UDim2.fromOffset(
-			End.X,
-			End.Y
+			Finish.X,
+			Finish.Y
 		)
 
 	TargetDot.Visible = true
 end
 
 --==================================================
--- GUI TOGGLE
+-- GUI BUTTON
 --==================================================
 
 GuiToggle.Activated:Connect(function()
@@ -519,6 +583,7 @@ FeatureButton.Activated:Connect(function()
 		CurrentTarget = nil
 
 		CamlockButton.Visible = false
+
 		CamlockButton.Text =
 			"CAMLOCK  •  OFF"
 
@@ -562,128 +627,167 @@ TracerButton.Activated:Connect(function()
 end)
 
 --==================================================
--- CAMLOCK TOGGLE
+-- CAMLOCK TOUCH CONTROL
 --==================================================
 
-CamlockButton.Activated:Connect(function()
+local TouchStart = nil
+local ButtonStart = nil
+local IsDragging = false
+local ActiveTouch = nil
 
-	if not FeatureEnabled then
-		return
-	end
+local function ClampButtonPosition(X,Y)
 
-	CamlockEnabled =
-		not CamlockEnabled
+	local ScreenSize =
+		Gui.AbsoluteSize
 
-	if CamlockEnabled then
+	local ButtonSize =
+		CamlockButton.AbsoluteSize
 
-		CurrentTarget =
-			FindTarget()
+	X = math.clamp(
+		X,
+		0,
+		math.max(0,ScreenSize.X-ButtonSize.X)
+	)
 
-		CamlockButton.Text =
-			"CAMLOCK  •  ON"
+	Y = math.clamp(
+		Y,
+		0,
+		math.max(0,ScreenSize.Y-ButtonSize.Y)
+	)
 
-		CamlockButton.BackgroundColor3 =
-			Color3.fromRGB(65,65,75)
+	return X,Y
+end
 
-		Status.Text =
-			CurrentTarget
-			and "TARGET LOCKED"
-			or "SEARCHING..."
+CamlockButton.InputBegan:Connect(function(Input)
 
-	else
+	if Input.UserInputType ==
+		Enum.UserInputType.Touch then
 
-		CurrentTarget = nil
+		ActiveTouch = Input
 
-		CamlockButton.Text =
-			"CAMLOCK  •  OFF"
+		TouchStart =
+			Input.Position
 
-		CamlockButton.BackgroundColor3 =
-			Color3.fromRGB(25,25,30)
+		ButtonStart =
+			CamlockButton.AbsolutePosition
 
-		Status.Text =
-			"CAMLOCK READY"
+		IsDragging = false
+
+	elseif Input.UserInputType ==
+		Enum.UserInputType.MouseButton1 then
+
+		ActiveTouch = Input
+
+		TouchStart =
+			Input.Position
+
+		ButtonStart =
+			CamlockButton.AbsolutePosition
+
+		IsDragging = false
 	end
 end)
 
---==================================================
--- FIXED MOBILE DRAGGING
---==================================================
+UserInputService.InputChanged:Connect(function(Input)
 
-local function MakeDraggable(Button)
+	if not ActiveTouch then
+		return
+	end
 
-	local dragging = false
-	local dragStart = nil
-	local startPosition = nil
+	if Input.UserInputType ~=
+		Enum.UserInputType.Touch
+		and Input.UserInputType ~=
+		Enum.UserInputType.MouseMovement then
 
-	local DRAG_THRESHOLD = 12
+		return
+	end
 
-	Button.InputBegan:Connect(function(Input)
+	local Delta =
+		Input.Position - TouchStart
 
-		if Input.UserInputType ==
-			Enum.UserInputType.Touch
-			or Input.UserInputType ==
-			Enum.UserInputType.MouseButton1 then
+	if not IsDragging then
 
-			dragging = true
-
-			dragStart =
-				Input.Position
-
-			startPosition =
-				Button.Position
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(Input)
-
-		if not dragging then
-			return
-		end
-
-		if Input.UserInputType ~=
-			Enum.UserInputType.Touch
-			and Input.UserInputType ~=
-			Enum.UserInputType.MouseMovement then
-
-			return
-		end
-
-		local Delta =
-			Input.Position - dragStart
-
-		-- Small movements are taps,
-		-- NOT drags.
 		if Delta.Magnitude < DRAG_THRESHOLD then
 			return
 		end
 
-		Button.Position =
-			UDim2.new(
-				startPosition.X.Scale,
-				startPosition.X.Offset + Delta.X,
+		IsDragging = true
+	end
 
-				startPosition.Y.Scale,
-				startPosition.Y.Offset + Delta.Y
-			)
-	end)
+	local NewX =
+		ButtonStart.X + Delta.X
 
-	UserInputService.InputEnded:Connect(function(Input)
+	local NewY =
+		ButtonStart.Y + Delta.Y
 
-		if Input.UserInputType ==
-			Enum.UserInputType.Touch
-			or Input.UserInputType ==
-			Enum.UserInputType.MouseButton1 then
+	NewX,NewY =
+		ClampButtonPosition(
+			NewX,
+			NewY
+		)
 
-			dragging = false
+	CamlockButton.Position =
+		UDim2.fromOffset(
+			NewX,
+			NewY
+		)
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+
+	if Input ~= ActiveTouch then
+		return
+	end
+
+	-- If the finger barely moved,
+	-- treat it as a TAP.
+	if not IsDragging then
+
+		if FeatureEnabled then
+
+			CamlockEnabled =
+				not CamlockEnabled
+
+			if CamlockEnabled then
+
+				CurrentTarget =
+					FindTarget()
+
+				CamlockButton.Text =
+					"CAMLOCK  •  ON"
+
+				CamlockButton.BackgroundColor3 =
+					Color3.fromRGB(65,65,75)
+
+				Status.Text =
+					CurrentTarget
+					and "TARGET LOCKED"
+					or "SEARCHING..."
+
+			else
+
+				CurrentTarget = nil
+
+				CamlockButton.Text =
+					"CAMLOCK  •  OFF"
+
+				CamlockButton.BackgroundColor3 =
+					Color3.fromRGB(25,25,30)
+
+				Status.Text =
+					"CAMLOCK READY"
+			end
 		end
-	end)
-end
+	end
 
-MakeDraggable(GuiToggle)
-MakeDraggable(CamlockButton)
+	ActiveTouch = nil
+	TouchStart = nil
+	ButtonStart = nil
+	IsDragging = false
+end)
 
 --==================================================
--- CAMERA LOOP
+-- CAMERA
 --==================================================
 
 RunService:BindToRenderStep(
@@ -695,19 +799,19 @@ RunService:BindToRenderStep(
 			return
 		end
 
-		-- Preview target
+		-- Preview the exact target
 		if not CamlockEnabled then
 
 			local Preview =
 				FindTarget()
 
-			DrawTracer(Preview)
+			UpdateTracer(Preview)
 
 			return
 		end
 
-		-- Get another target if current one disappears
-		if not ValidTarget(CurrentTarget) then
+		-- Get a new target if necessary
+		if not IsValidTarget(CurrentTarget) then
 
 			CurrentTarget =
 				FindTarget()
@@ -717,13 +821,14 @@ RunService:BindToRenderStep(
 				Status.Text =
 					"SEARCHING..."
 
-				DrawTracer(nil)
+				UpdateTracer(nil)
 
 				return
 			end
 		end
 
-		DrawTracer(CurrentTarget)
+		-- Tracer follows same target
+		UpdateTracer(CurrentTarget)
 
 		local Camera =
 			workspace.CurrentCamera
@@ -737,7 +842,7 @@ RunService:BindToRenderStep(
 				CurrentTarget
 			)
 
-		local DesiredCFrame =
+		local Desired =
 			CFrame.lookAt(
 				Camera.CFrame.Position,
 				AimPosition
@@ -745,7 +850,7 @@ RunService:BindToRenderStep(
 
 		Camera.CFrame =
 			Camera.CFrame:Lerp(
-				DesiredCFrame,
+				Desired,
 				SMOOTHNESS
 			)
 	end
