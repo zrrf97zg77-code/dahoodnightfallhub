@@ -1,6 +1,5 @@
 --// IVORY'S CAMLOCK
---// Mobile / Fixed Button
---// One button controls everything
+--// Mobile / Fixed Button / Permanent Tracer
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -14,22 +13,22 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local PREDICTION = 0.12
 local MAX_DISTANCE = 300
-local FOV = 180
-local SMOOTHNESS = 0.18
 
--- Fixed position. Change these if you want it somewhere else.
-local BUTTON_X = 0.5
-local BUTTON_Y = 0.78
+-- 180 degree targeting
+local FOV = 180
+
+-- Camera smoothness
+local SMOOTHNESS = 0.18
 
 --==================================================
 -- STATE
 --==================================================
 
-local Enabled = false
-local Target = nil
+local CamlockEnabled = false
+local CurrentTarget = nil
 
 --==================================================
--- SCREEN GUI
+-- GUI
 --==================================================
 
 local Gui = Instance.new("ScreenGui")
@@ -40,28 +39,32 @@ Gui.DisplayOrder = 1000
 Gui.Parent = PlayerGui
 
 --==================================================
--- CAMLOCK BUTTON
+-- FIXED CAMLOCK BUTTON
 --==================================================
 
 local Button = Instance.new("TextButton")
 
 Button.Name = "IvoryCamlockButton"
-Button.Size = UDim2.fromOffset(150, 52)
+
+Button.Size =
+	UDim2.fromOffset(150,52)
 
 -- FIXED POSITION
-Button.Position = UDim2.new(
-	BUTTON_X,
-	-75,
-	BUTTON_Y,
-	0
-)
+Button.Position =
+	UDim2.new(
+		0.5,
+		-75,
+		0.78,
+		0
+	)
 
 Button.BackgroundColor3 =
 	Color3.fromRGB(25,25,30)
 
 Button.BorderSizePixel = 0
 
-Button.Text = "IVORY CAMLOCK • OFF"
+Button.Text =
+	"IVORY CAMLOCK • OFF"
 
 Button.TextColor3 =
 	Color3.fromRGB(245,245,245)
@@ -71,30 +74,31 @@ Button.Font =
 
 Button.TextSize = 13
 
--- IMPORTANT:
--- Touchable, but NOT draggable.
+-- Touchable, but absolutely no drag code
 Button.Active = true
-Button.Selectable = false
 Button.AutoButtonColor = true
+Button.Selectable = false
 
 Button.Parent = Gui
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0,13)
-Corner.Parent = Button
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius =
+	UDim.new(0,13)
+ButtonCorner.Parent = Button
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Thickness = 1.5
-Stroke.Color = Color3.fromRGB(150,150,160)
-Stroke.Parent = Button
+local ButtonStroke = Instance.new("UIStroke")
+ButtonStroke.Thickness = 1.5
+ButtonStroke.Color =
+	Color3.fromRGB(150,150,160)
+ButtonStroke.Parent = Button
 
 --==================================================
--- TRACER
+-- PERMANENT TRACER
 --==================================================
 
 local Tracer = Instance.new("Frame")
 
-Tracer.Name = "CamlockTracer"
+Tracer.Name = "PermanentTracer"
 
 Tracer.AnchorPoint =
 	Vector2.new(0,0.5)
@@ -107,16 +111,20 @@ Tracer.BorderSizePixel = 0
 Tracer.Size =
 	UDim2.fromOffset(0,2)
 
-Tracer.Visible = false
+Tracer.Visible = true
+
 Tracer.ZIndex = 50
 
 Tracer.Parent = Gui
 
 local TracerCorner = Instance.new("UICorner")
-TracerCorner.CornerRadius = UDim.new(1,0)
+TracerCorner.CornerRadius =
+	UDim.new(1,0)
 TracerCorner.Parent = Tracer
 
--- Target marker
+--==================================================
+-- TARGET DOT
+--==================================================
 
 local TargetDot = Instance.new("Frame")
 
@@ -132,49 +140,69 @@ TargetDot.BackgroundTransparency = 1
 TargetDot.BorderSizePixel = 0
 
 TargetDot.Visible = false
+
 TargetDot.ZIndex = 51
 
 TargetDot.Parent = Gui
 
-local DotStroke = Instance.new("UIStroke")
-DotStroke.Thickness = 2
-DotStroke.Color = Color3.fromRGB(245,245,245)
-DotStroke.Parent = TargetDot
-
 local DotCorner = Instance.new("UICorner")
-DotCorner.CornerRadius = UDim.new(1,0)
+DotCorner.CornerRadius =
+	UDim.new(1,0)
 DotCorner.Parent = TargetDot
 
+local DotStroke = Instance.new("UIStroke")
+DotStroke.Thickness = 2
+DotStroke.Color =
+	Color3.fromRGB(245,245,245)
+DotStroke.Parent = TargetDot
+
 --==================================================
--- TARGET CHECK
+-- VALID TARGET
 --==================================================
 
-local function ValidTarget(Root)
+local function IsValidTarget(Root)
 
-	if not Root or not Root.Parent then
+	if not Root then
+		return false
+	end
+
+	if not Root.Parent then
 		return false
 	end
 
 	local Humanoid =
 		Root.Parent:FindFirstChildOfClass("Humanoid")
 
-	return Humanoid
-		and Humanoid.Health > 0
+	if not Humanoid then
+		return false
+	end
+
+	if Humanoid.Health <= 0 then
+		return false
+	end
+
+	return true
 end
 
 --==================================================
 -- PREDICTION
 --==================================================
 
-local function PredictedPosition(Root)
+local function GetPredictedPosition(Root)
+
+	if not IsValidTarget(Root) then
+		return nil
+	end
 
 	return Root.Position +
-		(Root.AssemblyLinearVelocity * PREDICTION)
-
+		(
+			Root.AssemblyLinearVelocity
+			* PREDICTION
+		)
 end
 
 --==================================================
--- FIND CLOSEST TARGET TO CENTER
+-- FIND BEST TARGET
 --==================================================
 
 local function FindTarget()
@@ -193,11 +221,13 @@ local function FindTarget()
 		Camera.CFrame.LookVector
 
 	local BestTarget = nil
-	local BestDistance = math.huge
+	local BestScreenDistance = math.huge
 
-	-- 180 degree field
+	-- Exactly 180 degrees
 	local MinimumDot =
-		math.cos(math.rad(FOV / 2))
+		math.cos(
+			math.rad(FOV / 2)
+		)
 
 	for _, Player in ipairs(Players:GetPlayers()) do
 
@@ -212,20 +242,23 @@ local function FindTarget()
 					Character:FindFirstChildOfClass("Humanoid")
 
 				local Root =
-					Character:FindFirstChild("HumanoidRootPart")
+					Character:FindFirstChild(
+						"HumanoidRootPart"
+					)
 
 				if Humanoid
 					and Root
 					and Humanoid.Health > 0 then
 
 					local Offset =
-						Root.Position - CameraPosition
+						Root.Position
+						- CameraPosition
 
 					local Distance =
 						Offset.Magnitude
 
-					if Distance <= MAX_DISTANCE
-						and Distance > 0 then
+					if Distance > 0
+						and Distance <= MAX_DISTANCE then
 
 						local Direction =
 							Offset.Unit
@@ -249,19 +282,22 @@ local function FindTarget()
 										Camera.ViewportSize.Y / 2
 									)
 
-								local ScreenPoint =
+								local TargetPoint =
 									Vector2.new(
 										ScreenPosition.X,
 										ScreenPosition.Y
 									)
 
 								local ScreenDistance =
-									(ScreenPoint - Center).Magnitude
+									(
+										TargetPoint
+										- Center
+									).Magnitude
 
-								if ScreenDistance <
-									BestDistance then
+								if ScreenDistance
+									< BestScreenDistance then
 
-									BestDistance =
+									BestScreenDistance =
 										ScreenDistance
 
 									BestTarget =
@@ -279,53 +315,61 @@ local function FindTarget()
 end
 
 --==================================================
--- TRACER
+-- UPDATE TRACER
 --==================================================
 
-local function HideTracer()
-
-	Tracer.Visible = false
-	TargetDot.Visible = false
-
-end
-
-local function UpdateTracer(Root)
-
-	if not Enabled or not ValidTarget(Root) then
-
-		HideTracer()
-		return
-	end
+local function UpdateTracer(Target)
 
 	local Camera =
 		workspace.CurrentCamera
 
 	if not Camera then
-
-		HideTracer()
 		return
 	end
 
-	local Position =
-		PredictedPosition(Root)
+	if not IsValidTarget(Target) then
 
+		Tracer.Visible = false
+		TargetDot.Visible = false
+
+		return
+	end
+
+	local Predicted =
+		GetPredictedPosition(Target)
+
+	if not Predicted then
+
+		Tracer.Visible = false
+		TargetDot.Visible = false
+
+		return
+	end
+
+	-- Project the EXACT predicted world position
+	-- onto the screen.
 	local ScreenPosition, Visible =
-		Camera:WorldToScreenPoint(Position)
+		Camera:WorldToScreenPoint(
+			Predicted
+		)
 
 	if not Visible
 		or ScreenPosition.Z <= 0 then
 
-		HideTracer()
+		Tracer.Visible = false
+		TargetDot.Visible = false
+
 		return
 	end
 
-	-- Exact center of screen
+	-- Screen center
 	local Start =
 		Vector2.new(
 			Camera.ViewportSize.X / 2,
 			Camera.ViewportSize.Y / 2
 		)
 
+	-- Target's projected position
 	local Finish =
 		Vector2.new(
 			ScreenPosition.X,
@@ -338,11 +382,13 @@ local function UpdateTracer(Root)
 	local Length =
 		Difference.Magnitude
 
-	if Length < 1 then
-
-		HideTracer()
+	if Length <= 1 then
 		return
 	end
+
+	--==================================================
+	-- DRAW LINE
+	--==================================================
 
 	Tracer.Position =
 		UDim2.fromOffset(
@@ -366,6 +412,10 @@ local function UpdateTracer(Root)
 
 	Tracer.Visible = true
 
+	--==================================================
+	-- DRAW TARGET POINT
+	--==================================================
+
 	TargetDot.Position =
 		UDim2.fromOffset(
 			Finish.X,
@@ -376,16 +426,15 @@ local function UpdateTracer(Root)
 end
 
 --==================================================
--- SINGLE TOUCH BUTTON
+-- BUTTON
 --==================================================
 
 Button.Activated:Connect(function()
 
-	Enabled = not Enabled
+	CamlockEnabled =
+		not CamlockEnabled
 
-	if Enabled then
-
-		Target = FindTarget()
+	if CamlockEnabled then
 
 		Button.Text =
 			"IVORY CAMLOCK • ON"
@@ -395,46 +444,22 @@ Button.Activated:Connect(function()
 
 	else
 
-		Target = nil
-
 		Button.Text =
 			"IVORY CAMLOCK • OFF"
 
 		Button.BackgroundColor3 =
 			Color3.fromRGB(25,25,30)
-
-		HideTracer()
 	end
 end)
 
 --==================================================
--- CAMLOCK LOOP
+-- MAIN LOOP
 --==================================================
 
 RunService:BindToRenderStep(
 	"IvoryCamlock",
 	Enum.RenderPriority.Camera.Value + 5,
 	function()
-
-		if not Enabled then
-			return
-		end
-
-		-- Find a new target if needed
-		if not ValidTarget(Target) then
-
-			Target = FindTarget()
-
-			if not Target then
-
-				HideTracer()
-				return
-			end
-		end
-
-		-- Tracer always shows the same
-		-- predicted position Camlock uses.
-		UpdateTracer(Target)
 
 		local Camera =
 			workspace.CurrentCamera
@@ -443,19 +468,48 @@ RunService:BindToRenderStep(
 			return
 		end
 
-		local AimPosition =
-			PredictedPosition(Target)
+		--==================================================
+		-- ALWAYS FIND THE TARGET
+		--==================================================
 
-		local DesiredCFrame =
-			CFrame.lookAt(
-				Camera.CFrame.Position,
-				AimPosition
-			)
+		local NewTarget =
+			FindTarget()
 
-		Camera.CFrame =
-			Camera.CFrame:Lerp(
-				DesiredCFrame,
-				SMOOTHNESS
-			)
+		CurrentTarget =
+			NewTarget
+
+		--==================================================
+		-- TRACER IS ALWAYS ACTIVE
+		--==================================================
+
+		UpdateTracer(CurrentTarget)
+
+		--==================================================
+		-- CAMERA LOCK
+		--==================================================
+
+		if CamlockEnabled
+			and IsValidTarget(CurrentTarget) then
+
+			local AimPosition =
+				GetPredictedPosition(
+					CurrentTarget
+				)
+
+			if AimPosition then
+
+				local DesiredCFrame =
+					CFrame.lookAt(
+						Camera.CFrame.Position,
+						AimPosition
+					)
+
+				Camera.CFrame =
+					Camera.CFrame:Lerp(
+						DesiredCFrame,
+						SMOOTHNESS
+					)
+			end
+		end
 	end
 )
