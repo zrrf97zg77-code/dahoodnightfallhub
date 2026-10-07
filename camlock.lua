@@ -1,10 +1,12 @@
---// IVORY'S CAMLOCK — DA HOOD (Delta / gethui version)
+--// IVORY'S CAMLOCK — DA HOOD
+--// Uses the working PlayerGui setup
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 --==================================================
 -- SETTINGS
@@ -35,69 +37,64 @@ local SETTINGS = {
 -- STATE
 --==================================================
 
-local CamlockEnabled = false
-local CurrentPart    = nil
+local CurrentPart = nil
 
 --==================================================
--- GUI (Delta-safe parent)
+-- GUI (your working code)
 --==================================================
 
 local Gui = Instance.new("ScreenGui")
-Gui.Name           = "IvoryCamlock"
-Gui.ResetOnSpawn   = false
+Gui.Name = "IvoryCamlockUI"
+Gui.ResetOnSpawn = false
 Gui.IgnoreGuiInset = true
-Gui.DisplayOrder   = 1000
-Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-local parentOk = pcall(function() Gui.Parent = gethui() end)
-if not parentOk then
-	pcall(function() Gui.Parent = game:GetService("CoreGui") end)
-	if not Gui.Parent then
-		Gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-	end
-end
-
---==================================================
--- BUTTON
---==================================================
+Gui.DisplayOrder = 999
+Gui.Parent = PlayerGui
 
 local Button = Instance.new("TextButton")
-Button.Size             = UDim2.fromOffset(160, 48)
-Button.Position         = UDim2.new(0.5, -80, 0.85, 0)
+Button.Name = "ToggleButton"
+Button.AnchorPoint = Vector2.new(0.5, 0.5)
+Button.Position = UDim2.new(0.5, 0, 0.85, 0)
+Button.Size = UDim2.fromOffset(180, 50)
 Button.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-Button.BorderSizePixel  = 0
-Button.Text             = "IVORY CAMLOCK • OFF"
-Button.TextColor3       = Color3.fromRGB(245, 245, 245)
-Button.Font             = Enum.Font.GothamBold
-Button.TextSize         = 13
-Button.Active           = true
-Button.AutoButtonColor  = true
-Button.Selectable       = false
-Button.Parent           = Gui
+Button.BorderSizePixel = 0
+Button.Text = "IVORY • OFF"
+Button.TextColor3 = Color3.fromRGB(245, 245, 245)
+Button.Font = Enum.Font.GothamBold
+Button.TextSize = 14
+Button.AutoButtonColor = true
+Button.Active = true
+Button.Selectable = false
+Button.ZIndex = 10
+Button.Parent = Gui
 
-Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 13)
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 13)
+Corner.Parent = Button
 
-local ButtonStroke = Instance.new("UIStroke", Button)
-ButtonStroke.Thickness = 1.5
-ButtonStroke.Color     = Color3.fromRGB(150, 150, 160)
+local Stroke = Instance.new("UIStroke")
+Stroke.Thickness = 1.5
+Stroke.Color = Color3.fromRGB(150, 150, 160)
+Stroke.Parent = Button
+
+local enabled = false
 
 --==================================================
--- BOX ESP
+-- BOX ESP (children of the same Gui)
 --==================================================
 
 local BoxContainer = Instance.new("Frame")
 BoxContainer.BackgroundTransparency = 1
 BoxContainer.Size                  = UDim2.fromScale(1, 1)
 BoxContainer.Visible               = false
-BoxContainer.ZIndex                = 50
+BoxContainer.ZIndex                = 5
 BoxContainer.Parent                = Gui
 
 local Box = Instance.new("Frame")
 Box.AnchorPoint            = Vector2.new(0.5, 0.5)
 Box.BackgroundColor3       = SETTINGS.BOX_COLOR
 Box.BackgroundTransparency = SETTINGS.BOX_FILL_TRANSP
-Box.B["orderSizePixel        = 0
-Box.ZIndex                Data = 50
+Box.BorderSizePixel        = 0
+Box.ZIndex                 = 5
 Box.Parent                 = BoxContainer
 
 Instance.new("UICorner", Box).CornerRadius = UDim.new(0, SETTINGS.BOX_CORNER)
@@ -114,12 +111,29 @@ Label.TextSize               = 12
 Label.TextColor3             = SETTINGS.BOX_COLOR
 Label.TextStrokeTransparency = 0.5
 Label.TextStrokeColor3       = Color3.new(0, 0, 0)
-Label.ZIndex                 = 52
+Label.ZIndex                 = 6
 Label.Visible                = SETTINGS.SHOW_LABEL
 Label.Parent                 = BoxContainer
 
 --==================================================
--- PREDICTION (PING-ADAPTIVE)
+-- BUTTON TOGGLE
+--==================================================
+
+Button.Activated:Connect(function()
+	enabled = not enabled
+
+	if enabled then
+		Button.Text = "IVORY • ON"
+		Button.BackgroundColor3 = Color3.fromRGB(65, 65, 75)
+	else
+		Button.Text = "IVORY • OFF"
+		Button.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+		CurrentPart = nil
+	end
+end)
+
+--==================================================
+-- PREDICTION (ping-adaptive)
 --==================================================
 
 local cachedPing = 50
@@ -130,7 +144,7 @@ local function getPrediction()
 	if now - lastPingUpdate > 1 then
 		lastPingUpdate = now
 		pcall(function()
-			local p = Stats.Network.ServerStatsItem Ping"]
+			local p = Stats.Network.ServerStatsItem["Data Ping"]
 			if p then cachedPing = p:GetValue() end
 		end)
 	end
@@ -294,22 +308,6 @@ local function UpdateBox(part)
 end
 
 --==================================================
--- BUTTON TOGGLE
---==================================================
-
-Button.Activated:Connect(function()
-	CamlockEnabled = not CamlockEnabled
-	if CamlockEnabled then
-		Button.Text             = "IVORY CAMLOCK • ON"
-		Button.BackgroundColor3 = Color3.fromRGB(65, 65, 75)
-	else
-		Button.Text             = "IVORY CAMLOCK • OFF"
-		Button.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-		CurrentPart = nil
-	end
-end)
-
---==================================================
 -- MAIN LOOP
 --==================================================
 
@@ -328,7 +326,7 @@ RunService:BindToRenderStep(
 			BoxContainer.Visible = false
 		end
 
-		if CamlockEnabled and IsValidTarget(CurrentPart) then
+		if enabled and IsValidTarget(CurrentPart) then
 			local aimPos = GetPredictedPosition(CurrentPart)
 			if aimPos then
 				local desired = CFrame.lookAt(cam.CFrame.Position, aimPos)
