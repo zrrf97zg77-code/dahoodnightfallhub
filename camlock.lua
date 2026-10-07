@@ -1,338 +1,495 @@
---// IVORY'S CAMLOCK — DA HOOD
---// Uses the working PlayerGui setup
+--[[
+    ╔══════════════════════════════════════════════════════════╗
+    ║              IVORY CAMLOCK — DES HOOD                    ║
+    ║              Delta Executor Edition                      ║
+    ╠══════════════════════════════════════════════════════════╣
+    ║  Features:                                               ║
+    ║   • IVORY CAMLOCK GUI                                    ║
+    ║   • Fixed CAMLOCK button                                 ║
+    ║   • Fixed 180° target range                              ║
+    ║   • No FOV circle / slider                               ║
+    ║   • White player boxes                                   ║
+    ║   • White target tracer                                  ║
+    ║   • Smooth camlock                                       ║
+    ║   • Velocity + projectile prediction                     ║
+    ║   • Projectile speed = 50                                ║
+    ║   • PC + Mobile support                                  ║
+    ║   • Keybind: Q                                           ║
+    ╚══════════════════════════════════════════════════════════╝
+--]]
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Stats = game:GetService("Stats")
+--========================================================--
+-- DELTA EXECUTOR HEADER
+--========================================================--
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+-- Ensure executor environment
+if not syn and not secure_call and not getgenv then
+    warn("[IVORY] Unsupported executor. Delta required.")
+    return
+end
+
+-- Clean previous instance if re-executed
+if getgenv().IvoryCamlock then
+    pcall(function()
+        getgenv().IvoryCamlock:Destroy()
+    end)
+end
+
+--========================================================--
+-- SERVICES
+--========================================================--
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
---==================================================
+--========================================================--
 -- SETTINGS
---==================================================
+--========================================================--
 
-local SETTINGS = {
-	MAX_DISTANCE    = 400,
-	FOV             = 120,
-	STICKY_TARGET   = true,
-	STICKY_RANGE    = 1.35,
+local PROJECTILE_SPEED = 50
+local HALF_FOV         = 90      -- literal 180° field
+local MAX_DISTANCE     = 1000
+local AIM_SMOOTHNESS   = 0.20
+local PING_MULTIPLIER  = 1
 
-	AIM_PART        = "UpperTorso",
-
-	BASE_PREDICTION = 0.128,
-	PING_MULTIPLIER = 0.0009,
-
-	SMOOTHNESS      = 0.22,
-
-	BOX_PADDING     = 5,
-	BOX_THICKNESS   = 1.5,
-	BOX_COLOR       = Color3.fromRGB(255, 255, 255),
-	BOX_FILL_TRANSP = 0.88,
-	BOX_CORNER      = 4,
-	SHOW_LABEL      = true,
-}
-
---==================================================
+--========================================================--
 -- STATE
---==================================================
+--========================================================--
 
-local CurrentPart = nil
+local CamlockEnabled = false
+local CurrentTarget  = nil
 
---==================================================
--- GUI (your working code)
---==================================================
+--========================================================--
+-- SCREEN GUI
+--========================================================--
 
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "IvoryCamlockUI"
-Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = true
-Gui.DisplayOrder = 999
-Gui.Parent = PlayerGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name            = "IvoryCamlock"
+ScreenGui.ResetOnSpawn    = false
+ScreenGui.IgnoreGuiInset  = true
+ScreenGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent          = PlayerGui
 
-local Button = Instance.new("TextButton")
-Button.Name = "ToggleButton"
-Button.AnchorPoint = Vector2.new(0.5, 0.5)
-Button.Position = UDim2.new(0.5, 0, 0.85, 0)
-Button.Size = UDim2.fromOffset(180, 50)
-Button.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-Button.BorderSizePixel = 0
-Button.Text = "IVORY • OFF"
-Button.TextColor3 = Color3.fromRGB(245, 245, 245)
-Button.Font = Enum.Font.GothamBold
-Button.TextSize = 14
-Button.AutoButtonColor = true
-Button.Active = true
-Button.Selectable = false
-Button.ZIndex = 10
-Button.Parent = Gui
+getgenv().IvoryCamlock = ScreenGui
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0, 13)
-Corner.Parent = Button
+--========================================================--
+-- MAIN GUI
+--========================================================--
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Thickness = 1.5
-Stroke.Color = Color3.fromRGB(150, 150, 160)
-Stroke.Parent = Button
+local Main = Instance.new("Frame")
+Main.Name             = "Main"
+Main.Size             = UDim2.fromOffset(260, 150)
+Main.Position         = UDim2.new(0.5, -130, 0.5, -75)
+Main.BackgroundColor3 = Color3.fromRGB(17, 17, 17)
+Main.BorderSizePixel  = 0
+Main.Active           = true
+Main.Draggable        = true
+Main.Parent           = ScreenGui
 
-local enabled = false
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent       = Main
 
---==================================================
--- BOX ESP (children of the same Gui)
---==================================================
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color        = Color3.fromRGB(255, 255, 255)
+MainStroke.Thickness    = 1.2
+MainStroke.Transparency = 0.65
+MainStroke.Parent       = Main
 
-local BoxContainer = Instance.new("Frame")
-BoxContainer.BackgroundTransparency = 1
-BoxContainer.Size                  = UDim2.fromScale(1, 1)
-BoxContainer.Visible               = false
-BoxContainer.ZIndex                = 5
-BoxContainer.Parent                = Gui
+--========================================================--
+-- TITLE
+--========================================================--
 
-local Box = Instance.new("Frame")
-Box.AnchorPoint            = Vector2.new(0.5, 0.5)
-Box.BackgroundColor3       = SETTINGS.BOX_COLOR
-Box.BackgroundTransparency = SETTINGS.BOX_FILL_TRANSP
-Box.BorderSizePixel        = 0
-Box.ZIndex                 = 5
-Box.Parent                 = BoxContainer
+local Title = Instance.new("TextLabel")
+Title.Name                 = "Title"
+Title.BackgroundTransparency = 1
+Title.Position             = UDim2.fromOffset(15, 10)
+Title.Size                 = UDim2.new(1, -30, 0, 30)
+Title.Text                 = "IVORY CAMLOCK"
+Title.TextColor3           = Color3.fromRGB(255, 255, 255)
+Title.TextSize             = 19
+Title.Font                 = Enum.Font.GothamBold
+Title.Parent               = Main
 
-Instance.new("UICorner", Box).CornerRadius = UDim.new(0, SETTINGS.BOX_CORNER)
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Name                 = "Subtitle"
+Subtitle.BackgroundTransparency = 1
+Subtitle.Position             = UDim2.fromOffset(15, 38)
+Subtitle.Size                 = UDim2.new(1, -30, 0, 20)
+Subtitle.Text                 = "DES HOOD  •  180°"
+Subtitle.TextColor3           = Color3.fromRGB(145, 145, 145)
+Subtitle.TextSize             = 10
+Subtitle.Font                 = Enum.Font.Gotham
+Subtitle.Parent               = Main
 
-local BoxStroke = Instance.new("UIStroke", Box)
-BoxStroke.Thickness = SETTINGS.BOX_THICKNESS
-BoxStroke.Color     = SETTINGS.BOX_COLOR
+--========================================================--
+-- GUI TOGGLE
+--========================================================--
 
-local Label = Instance.new("TextLabel")
-Label.BackgroundTransparency = 1
-Label.AnchorPoint            = Vector2.new(0.5, 1)
-Label.Font                   = Enum.Font.GothamBold
-Label.TextSize               = 12
-Label.TextColor3             = SETTINGS.BOX_COLOR
-Label.TextStrokeTransparency = 0.5
-Label.TextStrokeColor3       = Color3.new(0, 0, 0)
-Label.ZIndex                 = 6
-Label.Visible                = SETTINGS.SHOW_LABEL
-Label.Parent                 = BoxContainer
+local GuiToggle = Instance.new("TextButton")
+GuiToggle.Name             = "GuiToggle"
+GuiToggle.Size             = UDim2.new(1, -30, 0, 45)
+GuiToggle.Position         = UDim2.fromOffset(15, 80)
+GuiToggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+GuiToggle.BorderSizePixel  = 0
+GuiToggle.Text             = "HIDE GUI"
+GuiToggle.TextColor3       = Color3.fromRGB(255, 255, 255)
+GuiToggle.TextSize         = 13
+GuiToggle.Font             = Enum.Font.GothamBold
+GuiToggle.AutoButtonColor  = false
+GuiToggle.Parent           = Main
 
---==================================================
--- BUTTON TOGGLE
---==================================================
+local GuiToggleCorner = Instance.new("UICorner")
+GuiToggleCorner.CornerRadius = UDim.new(0, 8)
+GuiToggleCorner.Parent       = GuiToggle
 
-Button.Activated:Connect(function()
-	enabled = not enabled
+--========================================================--
+-- FLOATING CAMLOCK BUTTON
+--========================================================--
 
-	if enabled then
-		Button.Text = "IVORY • ON"
-		Button.BackgroundColor3 = Color3.fromRGB(65, 65, 75)
-	else
-		Button.Text = "IVORY • OFF"
-		Button.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-		CurrentPart = nil
-	end
+local CamlockButton = Instance.new("TextButton")
+CamlockButton.Name             = "CamlockButton"
+CamlockButton.Size             = UDim2.fromOffset(140, 48)
+CamlockButton.Position         = UDim2.new(0.5, -70, 0.82, 0)
+CamlockButton.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+CamlockButton.BorderSizePixel  = 0
+CamlockButton.Text             = "CAMLOCK • OFF"
+CamlockButton.TextColor3       = Color3.fromRGB(255, 255, 255)
+CamlockButton.TextSize         = 13
+CamlockButton.Font             = Enum.Font.GothamBold
+CamlockButton.AutoButtonColor  = false
+CamlockButton.Active           = true
+CamlockButton.Draggable        = true
+CamlockButton.Parent           = ScreenGui
+
+local CamlockCorner = Instance.new("UICorner")
+CamlockCorner.CornerRadius = UDim.new(0, 10)
+CamlockCorner.Parent       = CamlockButton
+
+local CamlockStroke = Instance.new("UIStroke")
+CamlockStroke.Color        = Color3.fromRGB(255, 255, 255)
+CamlockStroke.Thickness    = 1.3
+CamlockStroke.Transparency = 0.4
+CamlockStroke.Parent       = CamlockButton
+
+--========================================================--
+-- ESP CONTAINER
+--========================================================--
+
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name   = "IvoryESP"
+ESPFolder.Parent = ScreenGui
+
+--========================================================--
+-- TARGET BOX
+--========================================================--
+
+local function CreatePlayerBox(player)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name          = player.Name .. "_Box"
+    billboard.Size          = UDim2.fromOffset(65, 90)
+    billboard.AlwaysOnTop   = true
+    billboard.LightInfluence= 0
+    billboard.Enabled       = false
+    billboard.Parent        = ESPFolder
+
+    local box = Instance.new("Frame")
+    box.Name                 = "Box"
+    box.Size                 = UDim2.fromScale(1, 1)
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel      = 0
+    box.Parent               = billboard
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Name      = "Outline"
+    stroke.Color     = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1.5
+    stroke.Parent    = box
+
+    return billboard
+end
+
+local function GetPlayerBox(player)
+    local box = ESPFolder:FindFirstChild(player.Name .. "_Box")
+    if not box then
+        box = CreatePlayerBox(player)
+    end
+    return box
+end
+
+--========================================================--
+-- TRACER
+--========================================================--
+
+local Tracer = Instance.new("Frame")
+Tracer.Name               = "TargetTracer"
+Tracer.AnchorPoint        = Vector2.new(0.5, 0.5)
+Tracer.BackgroundColor3   = Color3.fromRGB(255, 255, 255)
+Tracer.BorderSizePixel    = 0
+Tracer.Visible            = false
+Tracer.ZIndex             = 20
+Tracer.Parent             = ScreenGui
+
+--========================================================--
+-- CHARACTER CHECK
+--========================================================--
+
+local function GetCharacterInfo(player)
+    if not player or player == LocalPlayer then return nil end
+
+    local character = player.Character
+    if not character then return nil end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root     = character:FindFirstChild("HumanoidRootPart")
+    local head     = character:FindFirstChild("Head")
+
+    if not humanoid or humanoid.Health <= 0 then return nil end
+    if not root or not head then return nil end
+
+    return character, humanoid, root, head
+end
+
+--========================================================--
+-- TARGET SELECTION
+--========================================================--
+
+local function GetClosestTarget()
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    local cameraPosition = camera.CFrame.Position
+    local cameraLook     = camera.CFrame.LookVector
+
+    local closestPlayer = nil
+    local closestAngle  = HALF_FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character, humanoid, root, head = GetCharacterInfo(player)
+        if character then
+            local offset   = head.Position - cameraPosition
+            local distance = offset.Magnitude
+
+            if distance > 0 and distance <= MAX_DISTANCE then
+                local direction = offset.Unit
+                local dot = math.clamp(cameraLook:Dot(direction), -1, 1)
+                local angle = math.deg(math.acos(dot))
+
+                if angle <= closestAngle then
+                    closestAngle  = angle
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+--========================================================--
+-- PING
+--========================================================--
+
+local function GetPing()
+    local success, ping = pcall(function()
+        return LocalPlayer:GetNetworkPing()
+    end)
+
+    if success and typeof(ping) == "number" then
+        return math.clamp(ping, 0, 0.5)
+    end
+
+    return 0
+end
+
+--========================================================--
+-- PREDICTION
+--========================================================--
+
+local function GetPredictedPosition(player)
+    local character, humanoid, root, head = GetCharacterInfo(player)
+    if not character then return nil end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    local distance   = (head.Position - camera.CFrame.Position).Magnitude
+    local travelTime = distance / PROJECTILE_SPEED
+    local ping       = GetPing()
+    local predictionTime = travelTime + (ping * PING_MULTIPLIER)
+    local velocity   = root.AssemblyLinearVelocity
+
+    return head.Position + (velocity * predictionTime)
+end
+
+--========================================================--
+-- TRACER UPDATE
+--========================================================--
+
+local function UpdateTracer(target)
+    if not target then
+        Tracer.Visible = false
+        return
+    end
+
+    local character, humanoid, root, head = GetCharacterInfo(target)
+    if not character then
+        Tracer.Visible = false
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    local position, visible = camera:WorldToViewportPoint(head.Position)
+    if not visible then
+        Tracer.Visible = false
+        return
+    end
+
+    local viewport = camera.ViewportSize
+    local start    = Vector2.new(viewport.X / 2, viewport.Y)
+    local finish   = Vector2.new(position.X, position.Y)
+    local difference = finish - start
+    local length     = difference.Magnitude
+
+    if length < 1 then
+        Tracer.Visible = false
+        return
+    end
+
+    Tracer.Visible  = true
+    Tracer.Position = UDim2.fromOffset(
+        (start.X + finish.X) / 2,
+        (start.Y + finish.Y) / 2
+    )
+    Tracer.Size     = UDim2.fromOffset(length, 2)
+    Tracer.Rotation = math.deg(math.atan2(difference.Y, difference.X))
+end
+
+--========================================================--
+-- ESP UPDATE
+--========================================================--
+
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local billboard = GetPlayerBox(player)
+            local character, humanoid, root, head = GetCharacterInfo(player)
+
+            if character and head then
+                billboard.Adornee  = character
+                billboard.Enabled  = true
+
+                local box = billboard:FindFirstChild("Box")
+                if box then
+                    local outline = box:FindFirstChild("Outline")
+                    if outline then
+                        outline.Thickness = (player == CurrentTarget) and 2.5 or 1.5
+                    end
+                end
+            else
+                billboard.Enabled = false
+            end
+        end
+    end
+end
+
+--========================================================--
+-- CAMLOCK TOGGLE
+--========================================================--
+
+local function SetCamlock(enabled)
+    CamlockEnabled = enabled
+
+    if enabled then
+        CamlockButton.Text             = "CAMLOCK • ON"
+        CamlockButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    else
+        CamlockButton.Text             = "CAMLOCK • OFF"
+        CamlockButton.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+        CurrentTarget                  = nil
+    end
+end
+
+--========================================================--
+-- BUTTON CONNECTIONS
+--========================================================--
+
+CamlockButton.Activated:Connect(function()
+    SetCamlock(not CamlockEnabled)
 end)
 
---==================================================
--- PREDICTION (ping-adaptive)
---==================================================
+GuiToggle.Activated:Connect(function()
+    Main.Visible = not Main.Visible
+    GuiToggle.Text = Main.Visible and "HIDE GUI" or "SHOW GUI"
+end)
 
-local cachedPing = 50
-local lastPingUpdate = 0
+--========================================================--
+-- KEYBIND (Q)
+--========================================================--
 
-local function getPrediction()
-	local now = tick()
-	if now - lastPingUpdate > 1 then
-		lastPingUpdate = now
-		pcall(function()
-			local p = Stats.Network.ServerStatsItem["Data Ping"]
-			if p then cachedPing = p:GetValue() end
-		end)
-	end
-	local prediction = SETTINGS.BASE_PREDICTION + (cachedPing * SETTINGS.PING_MULTIPLIER)
-	return math.clamp(prediction, 0.10, 0.20)
-end
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        SetCamlock(not CamlockEnabled)
+    end
+end)
 
---==================================================
--- TARGET VALIDATION
---==================================================
-
-local function isKOd(character)
-	local be = character:FindFirstChild("BodyEffects")
-	if not be then return false end
-	local ko = be:FindFirstChild("K.O")
-	return ko and ko.Value == true
-end
-
-local function isGrabbed(character)
-	return character:FindFirstChild("GRABBING_CONSTRAINT") ~= nil
-end
-
-local function IsValidTarget(part)
-	if not part or not part.Parent then return false end
-	local character = part.Parent
-	local hum = character:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 then return false end
-	if isKOd(character) or isGrabbed(character) then return false end
-	return true
-end
-
-local function GetPredictedPosition(part)
-	if not IsValidTarget(part) then return nil end
-	local v = part.AssemblyLinearVelocity
-	local biasedVel = Vector3.new(v.X, v.Y * 0.4, v.Z)
-	return part.Position + (biasedVel * getPrediction())
-end
-
---==================================================
--- TARGET FINDING
---==================================================
-
-local function FindTarget()
-	local cam = workspace.CurrentCamera
-	if not cam then return nil end
-
-	local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-	local best, bestDist = nil, math.huge
-	local minDot = math.cos(math.rad(SETTINGS.FOV / 2))
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			local character = player.Character
-			local part = character:FindFirstChild(SETTINGS.AIM_PART)
-			local hum = character:FindFirstChildOfClass("Humanoid")
-
-			if part and hum and hum.Health > 0 and IsValidTarget(part) then
-				local offset = part.Position - cam.CFrame.Position
-				local dist = offset.Magnitude
-
-				if dist > 0 and dist <= SETTINGS.MAX_DISTANCE then
-					local dot = cam.CFrame.LookVector:Dot(offset.Unit)
-					if dot >= minDot then
-						local screenPos, visible = cam:WorldToViewportPoint(part.Position)
-						if visible and screenPos.Z > 0 then
-							local d = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-							if d < bestDist then
-								bestDist = d
-								best = part
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	return best
-end
-
-local function pickTarget()
-	if SETTINGS.STICKY_TARGET and IsValidTarget(CurrentPart) then
-		local cam = workspace.CurrentCamera
-		if cam then
-			local offset = CurrentPart.Position - cam.CFrame.Position
-			if offset.Magnitude <= SETTINGS.MAX_DISTANCE * SETTINGS.STICKY_RANGE then
-				return CurrentPart
-			end
-		end
-	end
-	return FindTarget()
-end
-
---==================================================
--- BOX RENDERING
---==================================================
-
-local function getBoundingBox(part)
-	local cam = workspace.CurrentCamera
-	local character = part.Parent
-	if not cam or not character then return nil end
-
-	local minX, minY = math.huge, math.huge
-	local maxX, maxY = -math.huge, -math.huge
-	local anyVisible = false
-
-	local scale = (cam.ViewportSize.Y * 0.5) / math.tan(math.rad(cam.FieldOfView * 0.5))
-
-	for _, p in ipairs(character:GetDescendants()) do
-		if p:IsA("BasePart") and p.Transparency < 1 then
-			local pos, visible = cam:WorldToViewportPoint(p.Position)
-			if visible and pos.Z > 0 then
-				anyVisible = true
-				local dist = (p.Position - cam.CFrame.Position).Magnitude
-				local px = (p.Size.X * 0.5) * scale / math.max(dist, 1)
-				local py = (p.Size.Y * 0.5) * scale / math.max(dist, 1)
-
-				minX = math.min(minX, pos.X - px)
-				maxX = math.max(maxX, pos.X + px)
-				minY = math.min(minY, pos.Y - py)
-				maxY = math.max(maxY, pos.Y + py)
-			end
-		end
-	end
-
-	if not anyVisible then return nil end
-	return minX, minY, maxX, maxY
-end
-
-local function UpdateBox(part)
-	local cam = workspace.CurrentCamera
-	if not cam or not IsValidTarget(part) then
-		BoxContainer.Visible = false
-		return
-	end
-
-	local minX, minY, maxX, maxY = getBoundingBox(part)
-	if not minX then
-		BoxContainer.Visible = false
-		return
-	end
-
-	local pad    = SETTINGS.BOX_PADDING
-	local width  = (maxX - minX) + pad * 2
-	local height = (maxY - minY) + pad * 2
-	local cx     = (minX + maxX) / 2
-	local cy     = (minY + maxY) / 2
-
-	Box.Position = UDim2.fromOffset(cx, cy)
-	Box.Size     = UDim2.fromOffset(width, height)
-
-	if SETTINGS.SHOW_LABEL then
-		local dist = (part.Position - cam.CFrame.Position).Magnitude
-		Label.Text     = string.format("%s  [%d]", part.Parent.Name, math.floor(dist))
-		Label.Position = UDim2.new(0.5, 0, 0, -6)
-		Label.Size     = UDim2.fromOffset(math.max(width, 140), 16)
-		Label.Visible  = true
-	end
-
-	BoxContainer.Visible = true
-end
-
---==================================================
+--========================================================--
 -- MAIN LOOP
---==================================================
+--========================================================--
 
-RunService:BindToRenderStep(
-	"IvoryCamlock",
-	Enum.RenderPriority.Camera.Value + 5,
-	function(dt)
-		local cam = workspace.CurrentCamera
-		if not cam then return end
+RunService.RenderStepped:Connect(function()
+    CurrentTarget = GetClosestTarget()
+    UpdateESP()
+    UpdateTracer(CurrentTarget)
 
-		CurrentPart = pickTarget()
+    if not CamlockEnabled then return end
+    if not CurrentTarget then return end
 
-		if IsValidTarget(CurrentPart) then
-			UpdateBox(CurrentPart)
-		else
-			BoxContainer.Visible = false
-		end
+    local camera = workspace.CurrentCamera
+    if not camera then return end
 
-		if enabled and IsValidTarget(CurrentPart) then
-			local aimPos = GetPredictedPosition(CurrentPart)
-			if aimPos then
-				local desired = CFrame.lookAt(cam.CFrame.Position, aimPos)
-				local alpha = 1 - math.exp(-SETTINGS.SMOOTHNESS * 60 * dt)
-				cam.CFrame = cam.CFrame:Lerp(desired, alpha)
-			end
-		end
-	end
-)
+    local predictedPosition = GetPredictedPosition(CurrentTarget)
+    if not predictedPosition then return end
+
+    local cameraPosition = camera.CFrame.Position
+    local desiredCFrame  = CFrame.lookAt(cameraPosition, predictedPosition)
+
+    camera.CFrame = camera.CFrame:Lerp(desiredCFrame, AIM_SMOOTHNESS)
+end)
+
+--========================================================--
+-- CLEANUP
+--========================================================--
+
+Players.PlayerRemoving:Connect(function(player)
+    local box = ESPFolder:FindFirstChild(player.Name .. "_Box")
+    if box then box:Destroy() end
+    if CurrentTarget == player then CurrentTarget = nil end
+end)
+
+--========================================================--
+-- INITIAL STATE
+--========================================================--
+
+SetCamlock(false)
+
+-- Notify
+pcall(function()
+    if setthreadidentity then setthreadidentity(2) end
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "IVORY CAMLOCK",
+        Text  = "Loaded • Press Q to toggle",
+        Duration = 5,
+    })
+end)
