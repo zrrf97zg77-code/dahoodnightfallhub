@@ -3,11 +3,13 @@
     ║         IVORY CAMLOCK — DA HOOD EDITION  (FINAL)         ║
     ║         Delta Executor Build                             ║
     ╠══════════════════════════════════════════════════════════╣
-    ║   • Tap button      = toggle ON / OFF                    ║
-    ║   • Hold 3s + move  = drag button (no snap-back)         ║
-    ║   • Prediction       = LOCKED 1.00x ping (best Da Hood)  ║
-    ║   • ESP boxes scale with distance                        ║
-    ║   • Q keybind                                        ║
+    ║   • Tap button       = toggle ON / OFF                   ║
+    ║   • Hold 3s + move   = drag button (no snap-back)        ║
+    ║   • INSTANT aim (no smoothing)                           ║
+    ║   • Target LOCKED until camlock is turned off            ║
+    ║   • Prediction LOCKED 1.00x ping (best Da Hood)          ║
+    ║   • Small ESP boxes that scale with distance             ║
+    ║   • Q keybind                                            ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -29,13 +31,13 @@ local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 local HALF_FOV        = 90
 local MAX_DISTANCE    = 1000
-local AIM_SMOOTHNESS  = 0.20
 local PING_MULTIPLIER = 1.0
 
+-- ESP box scaling  (SMALLER now)
 local BOX_NEAR_DIST   = 10
 local BOX_FAR_DIST    = 500
-local BOX_MAX_SIZE    = 90
-local BOX_MIN_SIZE    = 22
+local BOX_MAX_SIZE    = 45     -- was 90 → half size up close
+local BOX_MIN_SIZE    = 12     -- was 22
 
 local HOLD_TO_DRAG_TIME = 3.0
 
@@ -94,7 +96,7 @@ local Subtitle = Instance.new("TextLabel")
 Subtitle.BackgroundTransparency = 1
 Subtitle.Position               = UDim2.fromOffset(15, 38)
 Subtitle.Size                   = UDim2.new(1, -30, 0, 20)
-Subtitle.Text                   = "DA HOOD  •  HITSCAN  •  180°"
+Subtitle.Text                   = "DA HOOD  •  INSTANT  •  LOCKED"
 Subtitle.TextColor3             = Color3.fromRGB(145, 145, 145)
 Subtitle.TextSize               = 10
 Subtitle.Font                   = Enum.Font.Gotham
@@ -105,7 +107,7 @@ local InfoLabel = Instance.new("TextLabel")
 InfoLabel.BackgroundTransparency = 1
 InfoLabel.Position               = UDim2.fromOffset(15, 62)
 InfoLabel.Size                   = UDim2.new(1, -30, 0, 18)
-InfoLabel.Text                   = "PREDICTION  •  LOCKED  •  1.00x"
+InfoLabel.Text                   = "MODE  •  INSTANT SNAP  •  LOCK"
 InfoLabel.TextColor3             = Color3.fromRGB(120, 200, 255)
 InfoLabel.TextSize               = 10
 InfoLabel.Font                   = Enum.Font.Gotham
@@ -163,7 +165,6 @@ TargetLabel.Parent                 = Main
 --========================================================--
 
 local CamlockButton = Instance.new("TextButton")
--- Restore saved position from previous session if present
 if getgenv().IvoryCamlockButtonPos then
     CamlockButton.Position = getgenv().IvoryCamlockButtonPos
 else
@@ -254,10 +255,10 @@ local function GetCharacterInfo(player)
 end
 
 --========================================================--
--- TARGET SELECTION
+-- TARGET SELECTION  (only called when picking NEW target)
 --========================================================--
 
-local function GetClosestTarget()
+local function FindNewTarget()
     local camera = workspace.CurrentCamera
     if not camera then return nil end
 
@@ -369,7 +370,7 @@ local function UpdateESP()
                 if box then
                     local outline = box:FindFirstChild("Outline")
                     if outline then
-                        outline.Thickness = (player == CurrentTarget) and 2.5 or 1.5
+                        outline.Thickness = (player == CurrentTarget) and 2.0 or 1.2
                     end
                 end
             else
@@ -389,8 +390,10 @@ local function SetCamlock(enabled)
         CamlockButton.Text             = "CAMLOCK • ON"
         CamlockButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
         CamlockStroke.Color            = Color3.fromRGB(120, 255, 120)
-        StatusLabel.Text               = "STATUS  •  ACTIVE"
+        StatusLabel.Text               = "STATUS  •  LOCKING"
         StatusLabel.TextColor3         = Color3.fromRGB(120, 255, 120)
+        -- Acquire first target immediately
+        CurrentTarget = FindNewTarget()
     else
         CamlockButton.Text             = "CAMLOCK • OFF"
         CamlockButton.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
@@ -403,13 +406,10 @@ end
 
 --========================================================--
 -- BUTTON LOGIC
---   • Tap (short)         → toggle
---   • Hold 3s then move   → drag (no auto-snap)
 --========================================================--
 
 local holding        = false
 local holdStartTime  = 0
-local holdToken      = 0
 local dragMode       = false
 local dragStartPos   = Vector2.new(0, 0)
 local buttonStartPos = Vector2.new(0, 0)
@@ -428,7 +428,6 @@ CamlockButton.InputBegan:Connect(function(input)
     if not IsPressInput(input) then return end
     holding       = true
     holdStartTime = tick()
-    holdToken     = holdToken + 1
     dragMode      = false
 end)
 
@@ -438,7 +437,6 @@ UserInputService.InputChanged:Connect(function(input)
 
     local heldFor = tick() - holdStartTime
 
-    -- Enter drag mode once 3s has passed
     if not dragMode and heldFor >= HOLD_TO_DRAG_TIME then
         dragMode = true
         local abs = CamlockButton.AbsolutePosition
@@ -448,7 +446,6 @@ UserInputService.InputChanged:Connect(function(input)
         CamlockStroke.Color = Color3.fromRGB(255, 200, 60)
     end
 
-    -- Move relative to where the drag started (no snap)
     if dragMode then
         local dx = input.Position.X - dragStartPos.X
         local dy = input.Position.Y - dragStartPos.Y
@@ -468,7 +465,6 @@ UserInputService.InputEnded:Connect(function(input)
 
     if dragMode then
         dragMode = false
-        -- Save new position
         getgenv().IvoryCamlockButtonPos = CamlockButton.Position
         CamlockButton.Text  = CamlockEnabled and "CAMLOCK • ON" or "CAMLOCK • OFF"
         CamlockStroke.Color = CamlockEnabled and Color3.fromRGB(120,255,120)
@@ -509,7 +505,23 @@ end)
 local labelTimer = 0
 
 RunService.RenderStepped:Connect(function(dt)
-    CurrentTarget = GetClosestTarget()
+    -- ================================================
+    -- TARGET LOCKING LOGIC
+    -- ================================================
+    if CamlockEnabled then
+        -- Keep existing target as long as they're alive
+        local stillValid = CurrentTarget
+            and GetCharacterInfo(CurrentTarget)
+
+        -- Only acquire a NEW target if we don't have one
+        -- or the current one died / left
+        if not stillValid then
+            CurrentTarget = FindNewTarget()
+        end
+    else
+        CurrentTarget = nil
+    end
+
     UpdateESP()
     UpdateTracer(CurrentTarget)
 
@@ -519,6 +531,9 @@ RunService.RenderStepped:Connect(function(dt)
         TargetLabel.Text = CurrentTarget and ("TARGET  •  " .. CurrentTarget.Name) or "TARGET  •  NONE"
     end
 
+    -- ================================================
+    -- INSTANT AIM  (no smoothing, no lerp)
+    -- ================================================
     if not CamlockEnabled or not CurrentTarget then return end
 
     local camera = workspace.CurrentCamera
@@ -527,8 +542,7 @@ RunService.RenderStepped:Connect(function(dt)
     local predicted = GetPredictedPosition(CurrentTarget)
     if not predicted then return end
 
-    local desired = CFrame.lookAt(camera.CFrame.Position, predicted)
-    camera.CFrame = camera.CFrame:Lerp(desired, AIM_SMOOTHNESS)
+    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, predicted)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
@@ -543,7 +557,7 @@ pcall(function()
     if setthreadidentity then setthreadidentity(2) end
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "IVORY CAMLOCK",
-        Text  = "Tap = toggle • Hold 3s + drag = move",
+        Text  = "Instant mode • Tap = toggle • Hold 3s = move",
         Duration = 5,
     })
 end)
