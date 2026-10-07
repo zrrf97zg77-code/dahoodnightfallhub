@@ -1,13 +1,13 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║         IVORY CAMLOCK — DA HOOD EDITION                  ║
-    ║         Delta Executor Build  (FINAL)                    ║
+    ║         IVORY CAMLOCK — DA HOOD EDITION  (FINAL)         ║
+    ║         Delta Executor Build                             ║
     ╠══════════════════════════════════════════════════════════╣
-    ║   • Tap CAMLOCK button = toggle on/off                   ║
-    ║   • Hold CAMLOCK 3s    = enter drag mode                 ║
-    ║   • Locked-in best Da Hood prediction (1.00x ping lead)  ║
+    ║   • Tap button      = toggle ON / OFF                    ║
+    ║   • Hold 3s + move  = drag button (no snap-back)         ║
+    ║   • Prediction       = LOCKED 1.00x ping (best Da Hood)  ║
     ║   • ESP boxes scale with distance                        ║
-    ║   • Q keybind toggle                                     ║
+    ║   • Q keybind                                        ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -15,10 +15,6 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 if getgenv().IvoryCamlock then
     pcall(function() getgenv().IvoryCamlock:Destroy() end)
 end
-
---========================================================--
--- SERVICES
---========================================================--
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -28,23 +24,19 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 --========================================================--
--- SETTINGS  (LOCKED — best for Da Hood)
+-- SETTINGS  (LOCKED)
 --========================================================--
 
-local HALF_FOV        = 90       -- 180° FOV
+local HALF_FOV        = 90
 local MAX_DISTANCE    = 1000
 local AIM_SMOOTHNESS  = 0.20
-
--- BEST Da Hood prediction: lead by full ping (hitscan weapons)
 local PING_MULTIPLIER = 1.0
 
--- ESP box scaling
 local BOX_NEAR_DIST   = 10
 local BOX_FAR_DIST    = 500
 local BOX_MAX_SIZE    = 90
 local BOX_MIN_SIZE    = 22
 
--- Hold duration to enter drag mode
 local HOLD_TO_DRAG_TIME = 3.0
 
 --========================================================--
@@ -68,7 +60,7 @@ ScreenGui.Parent         = PlayerGui
 getgenv().IvoryCamlock = ScreenGui
 
 --========================================================--
--- MAIN PANEL  (draggable)
+-- MAIN PANEL
 --========================================================--
 
 local Main = Instance.new("Frame")
@@ -79,7 +71,6 @@ Main.BorderSizePixel  = 0
 Main.Active           = true
 Main.Draggable        = true
 Main.Parent           = ScreenGui
-
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
 
 local MainStroke = Instance.new("UIStroke")
@@ -110,7 +101,6 @@ Subtitle.Font                   = Enum.Font.Gotham
 Subtitle.TextXAlignment         = Enum.TextXAlignment.Left
 Subtitle.Parent                 = Main
 
--- Info line (replaces slider)
 local InfoLabel = Instance.new("TextLabel")
 InfoLabel.BackgroundTransparency = 1
 InfoLabel.Position               = UDim2.fromOffset(15, 62)
@@ -126,7 +116,7 @@ local InfoLabel2 = Instance.new("TextLabel")
 InfoLabel2.BackgroundTransparency = 1
 InfoLabel2.Position               = UDim2.fromOffset(15, 78)
 InfoLabel2.Size                   = UDim2.new(1, -30, 0, 18)
-InfoLabel2.Text                   = "HOLD 3s ON BUTTON TO MOVE"
+InfoLabel2.Text                   = "HOLD 3s + MOVE TO REPOSITION"
 InfoLabel2.TextColor3             = Color3.fromRGB(145, 145, 145)
 InfoLabel2.TextSize               = 10
 InfoLabel2.Font                   = Enum.Font.Gotham
@@ -169,12 +159,17 @@ TargetLabel.TextXAlignment         = Enum.TextXAlignment.Left
 TargetLabel.Parent                 = Main
 
 --========================================================--
--- CAMLOCK BUTTON  (tap = toggle, hold 3s = drag mode)
+-- CAMLOCK BUTTON
 --========================================================--
 
 local CamlockButton = Instance.new("TextButton")
+-- Restore saved position from previous session if present
+if getgenv().IvoryCamlockButtonPos then
+    CamlockButton.Position = getgenv().IvoryCamlockButtonPos
+else
+    CamlockButton.Position = UDim2.new(0.5, -75, 0.85, 0)
+end
 CamlockButton.Size             = UDim2.fromOffset(150, 52)
-CamlockButton.Position         = UDim2.new(0.5, -75, 0.85, 0)
 CamlockButton.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
 CamlockButton.BorderSizePixel  = 0
 CamlockButton.Text             = "CAMLOCK • OFF"
@@ -200,10 +195,6 @@ CamlockStroke.Parent       = CamlockButton
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name   = "IvoryESP"
 ESPFolder.Parent = ScreenGui
-
---========================================================--
--- TARGET BOX
---========================================================--
 
 local function CreatePlayerBox(player)
     local billboard = Instance.new("BillboardGui")
@@ -234,10 +225,6 @@ local function GetPlayerBox(player)
     if not box then box = CreatePlayerBox(player) end
     return box
 end
-
---========================================================--
--- TRACER
---========================================================--
 
 local Tracer = Instance.new("Frame")
 Tracer.AnchorPoint      = Vector2.new(0.5, 0.5)
@@ -321,15 +308,13 @@ end
 local function GetPredictedPosition(player)
     local character, humanoid, root, head = GetCharacterInfo(player)
     if not character then return nil end
-
     local pingTime = GetPing() * PING_MULTIPLIER
     local velocity = root.AssemblyLinearVelocity
-
     return head.Position + (velocity * pingTime)
 end
 
 --========================================================--
--- TRACER UPDATE
+-- TRACER
 --========================================================--
 
 local function UpdateTracer(target)
@@ -357,7 +342,7 @@ local function UpdateTracer(target)
 end
 
 --========================================================--
--- ESP UPDATE  (scales with distance)
+-- ESP UPDATE
 --========================================================--
 
 local function UpdateESP()
@@ -376,10 +361,8 @@ local function UpdateESP()
 
                 local distance = (head.Position - camPos).Magnitude
                 local alpha = math.clamp((distance - BOX_NEAR_DIST) / (BOX_FAR_DIST - BOX_NEAR_DIST), 0, 1)
-
                 local boxW = BOX_MAX_SIZE + (BOX_MIN_SIZE - BOX_MAX_SIZE) * alpha
                 local boxH = boxW * 1.4
-
                 billboard.Size = UDim2.fromOffset(boxW, boxH)
 
                 local box = billboard:FindFirstChild("Box")
@@ -419,112 +402,97 @@ local function SetCamlock(enabled)
 end
 
 --========================================================--
--- BUTTON: TAP = TOGGLE, HOLD 3s = DRAG MODE
+-- BUTTON LOGIC
+--   • Tap (short)         → toggle
+--   • Hold 3s then move   → drag (no auto-snap)
 --========================================================--
 
-local holdStart        = nil
-local holdConnection   = nil
-local dragConnection   = nil
-local isDragging       = false
-local dragModeArmed    = false   -- true when 3s hold has been reached
-local dragOffset       = Vector2.new(0, 0)
-local dragInputConn    = nil
+local holding        = false
+local holdStartTime  = 0
+local holdToken      = 0
+local dragMode       = false
+local dragStartPos   = Vector2.new(0, 0)
+local buttonStartPos = Vector2.new(0, 0)
 
-local function EndDrag()
-    isDragging = false
-    if dragConnection then dragConnection:Disconnect() dragConnection = nil end
-    if dragInputConn then dragInputConn:Disconnect() dragInputConn = nil end
+local function IsPressInput(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch
 end
 
-local function StartDrag(input)
-    isDragging = true
-    dragModeArmed = false
-    CamlockButton.Draggable = false  -- we handle drag manually
-
-    -- Save offset between pointer and button top-left
-    local buttonPos = CamlockButton.AbsolutePosition
-    dragOffset = Vector2.new(input.Position.X - buttonPos.X,
-                             input.Position.Y - buttonPos.Y)
-
-    -- Live update
-    dragInputConn = UserInputService.InputChanged:Connect(function(moveInput)
-        if not isDragging then return end
-        if moveInput.UserInputType == Enum.UserInputType.MouseMovement
-        or moveInput.UserInputType == Enum.UserInputType.Touch then
-            local newX = moveInput.Position.X - dragOffset.X
-            local newY = moveInput.Position.Y - dragOffset.Y
-
-            -- Convert screen pixel to UDim2 (using offset only, relative to screen)
-            CamlockButton.Position = UDim2.fromOffset(newX, newY)
-        end
-    end)
+local function IsMoveInput(input)
+    return input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
 end
 
 CamlockButton.InputBegan:Connect(function(input)
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1
-    and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not IsPressInput(input) then return end
+    holding       = true
+    holdStartTime = tick()
+    holdToken     = holdToken + 1
+    dragMode      = false
+end)
 
-    -- Start tracking hold
-    holdStart = tick()
-    dragModeArmed = false
+UserInputService.InputChanged:Connect(function(input)
+    if not holding then return end
+    if not IsMoveInput(input) then return end
 
-    -- After 3 seconds, enter drag mode
-    holdConnection = task.delay(HOLD_TO_DRAG_TIME, function()
-        if holdStart and not isDragging then
-            dragModeArmed = true
-            -- Visual cue
-            CamlockButton.Text = "MOVE MODE"
-            CamlockStroke.Color = Color3.fromRGB(255, 200, 60)
-            -- Start dragging from the current pointer position
-            local fakeInput = { Position = UserInputService:GetMouseLocation() }
-            StartDrag(fakeInput)
+    local heldFor = tick() - holdStartTime
+
+    -- Enter drag mode once 3s has passed
+    if not dragMode and heldFor >= HOLD_TO_DRAG_TIME then
+        dragMode = true
+        local abs = CamlockButton.AbsolutePosition
+        buttonStartPos = Vector2.new(abs.X, abs.Y)
+        dragStartPos   = Vector2.new(input.Position.X, input.Position.Y)
+        CamlockButton.Text  = "MOVE MODE"
+        CamlockStroke.Color = Color3.fromRGB(255, 200, 60)
+    end
+
+    -- Move relative to where the drag started (no snap)
+    if dragMode then
+        local dx = input.Position.X - dragStartPos.X
+        local dy = input.Position.Y - dragStartPos.Y
+        CamlockButton.Position = UDim2.fromOffset(
+            buttonStartPos.X + dx,
+            buttonStartPos.Y + dy
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if not IsPressInput(input) then return end
+    if not holding then return end
+
+    local heldFor = tick() - holdStartTime
+    holding = false
+
+    if dragMode then
+        dragMode = false
+        -- Save new position
+        getgenv().IvoryCamlockButtonPos = CamlockButton.Position
+        CamlockButton.Text  = CamlockEnabled and "CAMLOCK • ON" or "CAMLOCK • OFF"
+        CamlockStroke.Color = CamlockEnabled and Color3.fromRGB(120,255,120)
+                              or Color3.fromRGB(255,255,255)
+    else
+        if heldFor < HOLD_TO_DRAG_TIME then
+            SetCamlock(not CamlockEnabled)
         end
-    end)
-
-    -- Track release
-    local releaseConn
-    releaseConn = UserInputService.InputEnded:Connect(function(endInput)
-        if endInput.UserInputType ~= Enum.UserInputType.MouseButton1
-        and endInput.UserInputType ~= Enum.UserInputType.Touch then return end
-
-        releaseConn:Disconnect()
-
-        local heldTime = tick() - (holdStart or 0)
-        holdStart = nil
-
-        if holdConnection then
-            pcall(function() task.cancel(holdConnection) end)
-            holdConnection = nil
-        end
-
-        if isDragging then
-            -- Was dragging → stop
-            EndDrag()
-            CamlockButton.Text = CamlockEnabled and "CAMLOCK • ON" or "CAMLOCK • OFF"
-            CamlockStroke.Color = CamlockEnabled and Color3.fromRGB(120,255,120) or Color3.fromRGB(255,255,255)
-        else
-            -- Short tap → toggle camlock
-            if heldTime < HOLD_TO_DRAG_TIME then
-                SetCamlock(not CamlockEnabled)
-            end
-        end
-    end)
+    end
 end)
 
 --========================================================--
--- GUI TOGGLE BUTTON  (simple tap)
+-- GUI TOGGLE
 --========================================================--
 
 GuiToggle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
+    if IsPressInput(input) then
         Main.Visible = not Main.Visible
         GuiToggle.Text = Main.Visible and "HIDE GUI" or "SHOW GUI"
     end
 end)
 
 --========================================================--
--- KEYBIND (Q)
+-- KEYBIND
 --========================================================--
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -563,19 +531,11 @@ RunService.RenderStepped:Connect(function(dt)
     camera.CFrame = camera.CFrame:Lerp(desired, AIM_SMOOTHNESS)
 end)
 
---========================================================--
--- CLEANUP
---========================================================--
-
 Players.PlayerRemoving:Connect(function(player)
     local box = ESPFolder:FindFirstChild(player.Name .. "_Box")
     if box then box:Destroy() end
     if CurrentTarget == player then CurrentTarget = nil end
 end)
-
---========================================================--
--- INIT
---========================================================--
 
 SetCamlock(false)
 
@@ -583,7 +543,7 @@ pcall(function()
     if setthreadidentity then setthreadidentity(2) end
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "IVORY CAMLOCK",
-        Text  = "Tap to toggle • Hold 3s to move",
+        Text  = "Tap = toggle • Hold 3s + drag = move",
         Duration = 5,
     })
 end)
