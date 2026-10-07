@@ -1,183 +1,93 @@
---// IVORY'S CAMLOCK
---// Mobile / Fixed Button / Permanent Tracer
+--// IVORY'S CAMLOCK — DA HOOD OPTIMIZED
+--// Ping-adaptive prediction + K.O./grab filtering
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
 
 --==================================================
 -- SETTINGS
 --==================================================
 
-local PREDICTION = 0.12
-local MAX_DISTANCE = 300
+local SETTINGS = {
+	-- Targeting
+	MAX_DISTANCE     = 400,
+	FOV              = 120,
+	STICKY_TARGET    = true,
+	STICKY_RANGE     = 1.35,
 
--- 180 degree targeting
-local FOV = 180
+	-- Aim part (torso is most stable hitbox)
+	AIM_PART         = "UpperTorso",
 
--- Camera smoothness
-local SMOOTHNESS = 0.18
+	-- Prediction (base value, gets ping-adjusted)
+	BASE_PREDICTION  = 0.125,
+	PING_MULTIPLIER  = 0.0008,  -- adds ~0.08 at 100ms
+
+	-- Camera
+	SMOOTHNESS       = 0.18,
+
+	-- ESP
+	BOX_PADDING      = 5,
+	BOX_COLOR        = Color3.fromRGB(255, 255, 255),
+}
 
 --==================================================
 -- STATE
 --==================================================
 
 local CamlockEnabled = false
-local CurrentTarget = nil
+local CurrentTarget  = nil
+local CurrentPart    = nil
 
 --==================================================
--- GUI
+-- PING-ADAPTIVE PREDICTION
 --==================================================
 
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "IvoryCamlock"
-Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = false
-Gui.DisplayOrder = 1000
-Gui.Parent = PlayerGui
+local function getPrediction()
+	local ping = 50 -- default fallback
+
+	pcall(function()
+		local pingStat = Stats.Network.ServerStatsItem["Data Ping"]
+		if pingStat then
+			ping = pingStat:GetValue()
+		end
+	end)
+
+	-- Scale prediction with ping
+	-- 50ms  -> ~0.125
+	-- 100ms -> ~0.145
+	-- 150ms -> ~0.165
+	local prediction = SETTINGS.BASE_PREDICTION + (ping * SETTINGS.PING_MULTIPLIER)
+	return math.clamp(prediction, 0.10, 0.20)
+end
 
 --==================================================
--- FIXED CAMLOCK BUTTON
+-- TARGET VALIDATION
 --==================================================
 
-local Button = Instance.new("TextButton")
+local function isKOd(character)
+	local bodyEffects = character:FindFirstChild("BodyEffects")
+	if not bodyEffects then return false end
+	local ko = bodyEffects:FindFirstChild("K.O")
+	return ko and ko.Value == true
+end
 
-Button.Name = "IvoryCamlockButton"
+local function isGrabbed(character)
+	return character:FindFirstChild("GRABBING_CONSTRAINT") ~= nil
+end
 
-Button.Size =
-	UDim2.fromOffset(150,52)
+local function IsValidTarget(part)
+	if not part or not part.Parent then return false end
 
--- FIXED POSITION
-Button.Position =
-	UDim2.new(
-		0.5,
-		-75,
-		0.78,
-		0
-	)
+	local character = part.Parent
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return false end
 
-Button.BackgroundColor3 =
-	Color3.fromRGB(25,25,30)
-
-Button.BorderSizePixel = 0
-
-Button.Text =
-	"IVORY CAMLOCK • OFF"
-
-Button.TextColor3 =
-	Color3.fromRGB(245,245,245)
-
-Button.Font =
-	Enum.Font.GothamBold
-
-Button.TextSize = 13
-
--- Touchable, but absolutely no drag code
-Button.Active = true
-Button.AutoButtonColor = true
-Button.Selectable = false
-
-Button.Parent = Gui
-
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius =
-	UDim.new(0,13)
-ButtonCorner.Parent = Button
-
-local ButtonStroke = Instance.new("UIStroke")
-ButtonStroke.Thickness = 1.5
-ButtonStroke.Color =
-	Color3.fromRGB(150,150,160)
-ButtonStroke.Parent = Button
-
---==================================================
--- PERMANENT TRACER
---==================================================
-
-local Tracer = Instance.new("Frame")
-
-Tracer.Name = "PermanentTracer"
-
-Tracer.AnchorPoint =
-	Vector2.new(0,0.5)
-
-Tracer.BackgroundColor3 =
-	Color3.fromRGB(245,245,245)
-
-Tracer.BorderSizePixel = 0
-
-Tracer.Size =
-	UDim2.fromOffset(0,2)
-
-Tracer.Visible = true
-
-Tracer.ZIndex = 50
-
-Tracer.Parent = Gui
-
-local TracerCorner = Instance.new("UICorner")
-TracerCorner.CornerRadius =
-	UDim.new(1,0)
-TracerCorner.Parent = Tracer
-
---==================================================
--- TARGET DOT
---==================================================
-
-local TargetDot = Instance.new("Frame")
-
-TargetDot.Name = "TargetDot"
-
-TargetDot.AnchorPoint =
-	Vector2.new(0.5,0.5)
-
-TargetDot.Size =
-	UDim2.fromOffset(12,12)
-
-TargetDot.BackgroundTransparency = 1
-TargetDot.BorderSizePixel = 0
-
-TargetDot.Visible = false
-
-TargetDot.ZIndex = 51
-
-TargetDot.Parent = Gui
-
-local DotCorner = Instance.new("UICorner")
-DotCorner.CornerRadius =
-	UDim.new(1,0)
-DotCorner.Parent = TargetDot
-
-local DotStroke = Instance.new("UIStroke")
-DotStroke.Thickness = 2
-DotStroke.Color =
-	Color3.fromRGB(245,245,245)
-DotStroke.Parent = TargetDot
-
---==================================================
--- VALID TARGET
---==================================================
-
-local function IsValidTarget(Root)
-
-	if not Root then
-		return false
-	end
-
-	if not Root.Parent then
-		return false
-	end
-
-	local Humanoid =
-		Root.Parent:FindFirstChildOfClass("Humanoid")
-
-	if not Humanoid then
-		return false
-	end
-
-	if Humanoid.Health <= 0 then
+	-- Skip K.O. or grabbed players (unhittable)
+	if isKOd(character) or isGrabbed(character) then
 		return false
 	end
 
@@ -188,121 +98,51 @@ end
 -- PREDICTION
 --==================================================
 
-local function GetPredictedPosition(Root)
+local function GetPredictedPosition(part)
+	if not IsValidTarget(part) then return nil end
 
-	if not IsValidTarget(Root) then
-		return nil
-	end
+	local velocity = part.AssemblyLinearVelocity
+	local prediction = getPrediction()
 
-	return Root.Position +
-		(
-			Root.AssemblyLinearVelocity
-			* PREDICTION
-		)
+	-- Bias vertical velocity down (Da Hood has lots of jumping/ragdoll)
+	local biasedVel = Vector3.new(velocity.X, velocity.Y * 0.4, velocity.Z)
+
+	return part.Position + (biasedVel * prediction)
 end
 
 --==================================================
--- FIND BEST TARGET
+-- TARGET FINDING
 --==================================================
 
+local function getScreenCenter()
+	return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end
+
 local function FindTarget()
+	local center = getScreenCenter()
+	local best, bestDist = nil, math.huge
+	local minDot = math.cos(math.rad(SETTINGS.FOV / 2))
 
-	local Camera =
-		workspace.CurrentCamera
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local character = player.Character
+			local part = character:FindFirstChild(SETTINGS.AIM_PART)
+			local hum = character:FindFirstChildOfClass("Humanoid")
 
-	if not Camera then
-		return nil
-	end
+			if part and hum and hum.Health > 0 and IsValidTarget(part) then
+				local offset = part.Position - Camera.CFrame.Position
+				local distance = offset.Magnitude
 
-	local CameraPosition =
-		Camera.CFrame.Position
+				if distance > 0 and distance <= SETTINGS.MAX_DISTANCE then
+					local dot = Camera.CFrame.LookVector:Dot(offset.Unit)
 
-	local CameraLook =
-		Camera.CFrame.LookVector
-
-	local BestTarget = nil
-	local BestScreenDistance = math.huge
-
-	-- Exactly 180 degrees
-	local MinimumDot =
-		math.cos(
-			math.rad(FOV / 2)
-		)
-
-	for _, Player in ipairs(Players:GetPlayers()) do
-
-		if Player ~= LocalPlayer then
-
-			local Character =
-				Player.Character
-
-			if Character then
-
-				local Humanoid =
-					Character:FindFirstChildOfClass("Humanoid")
-
-				local Root =
-					Character:FindFirstChild(
-						"HumanoidRootPart"
-					)
-
-				if Humanoid
-					and Root
-					and Humanoid.Health > 0 then
-
-					local Offset =
-						Root.Position
-						- CameraPosition
-
-					local Distance =
-						Offset.Magnitude
-
-					if Distance > 0
-						and Distance <= MAX_DISTANCE then
-
-						local Direction =
-							Offset.Unit
-
-						local Dot =
-							CameraLook:Dot(Direction)
-
-						if Dot >= MinimumDot then
-
-							local ScreenPosition, Visible =
-								Camera:WorldToScreenPoint(
-									Root.Position
-								)
-
-							if Visible
-								and ScreenPosition.Z > 0 then
-
-								local Center =
-									Vector2.new(
-										Camera.ViewportSize.X / 2,
-										Camera.ViewportSize.Y / 2
-									)
-
-								local TargetPoint =
-									Vector2.new(
-										ScreenPosition.X,
-										ScreenPosition.Y
-									)
-
-								local ScreenDistance =
-									(
-										TargetPoint
-										- Center
-									).Magnitude
-
-								if ScreenDistance
-									< BestScreenDistance then
-
-									BestScreenDistance =
-										ScreenDistance
-
-									BestTarget =
-										Root
-								end
+					if dot >= minDot then
+						local screenPos, visible = Camera:WorldToViewportPoint(part.Position)
+						if visible and screenPos.Z > 0 then
+							local d = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+							if d < bestDist then
+								bestDist = d
+								best = part
 							end
 						end
 					end
@@ -311,146 +151,19 @@ local function FindTarget()
 		end
 	end
 
-	return BestTarget
+	return best
 end
 
---==================================================
--- UPDATE TRACER
---==================================================
-
-local function UpdateTracer(Target)
-
-	local Camera =
-		workspace.CurrentCamera
-
-	if not Camera then
-		return
+local function pickTarget()
+	-- Sticky target: keep current if still valid
+	if SETTINGS.STICKY_TARGET and IsValidTarget(CurrentPart) then
+		local offset = CurrentPart.Position - Camera.CFrame.Position
+		if offset.Magnitude <= SETTINGS.MAX_DISTANCE * SETTINGS.STICKY_RANGE then
+			return CurrentPart
+		end
 	end
-
-	if not IsValidTarget(Target) then
-
-		Tracer.Visible = false
-		TargetDot.Visible = false
-
-		return
-	end
-
-	local Predicted =
-		GetPredictedPosition(Target)
-
-	if not Predicted then
-
-		Tracer.Visible = false
-		TargetDot.Visible = false
-
-		return
-	end
-
-	-- Project the EXACT predicted world position
-	-- onto the screen.
-	local ScreenPosition, Visible =
-		Camera:WorldToScreenPoint(
-			Predicted
-		)
-
-	if not Visible
-		or ScreenPosition.Z <= 0 then
-
-		Tracer.Visible = false
-		TargetDot.Visible = false
-
-		return
-	end
-
-	-- Screen center
-	local Start =
-		Vector2.new(
-			Camera.ViewportSize.X / 2,
-			Camera.ViewportSize.Y / 2
-		)
-
-	-- Target's projected position
-	local Finish =
-		Vector2.new(
-			ScreenPosition.X,
-			ScreenPosition.Y
-		)
-
-	local Difference =
-		Finish - Start
-
-	local Length =
-		Difference.Magnitude
-
-	if Length <= 1 then
-		return
-	end
-
-	--==================================================
-	-- DRAW LINE
-	--==================================================
-
-	Tracer.Position =
-		UDim2.fromOffset(
-			Start.X,
-			Start.Y
-		)
-
-	Tracer.Size =
-		UDim2.fromOffset(
-			Length,
-			2
-		)
-
-	Tracer.Rotation =
-		math.deg(
-			math.atan2(
-				Difference.Y,
-				Difference.X
-			)
-		)
-
-	Tracer.Visible = true
-
-	--==================================================
-	-- DRAW TARGET POINT
-	--==================================================
-
-	TargetDot.Position =
-		UDim2.fromOffset(
-			Finish.X,
-			Finish.Y
-		)
-
-	TargetDot.Visible = true
+	return FindTarget()
 end
-
---==================================================
--- BUTTON
---==================================================
-
-Button.Activated:Connect(function()
-
-	CamlockEnabled =
-		not CamlockEnabled
-
-	if CamlockEnabled then
-
-		Button.Text =
-			"IVORY CAMLOCK • ON"
-
-		Button.BackgroundColor3 =
-			Color3.fromRGB(65,65,75)
-
-	else
-
-		Button.Text =
-			"IVORY CAMLOCK • OFF"
-
-		Button.BackgroundColor3 =
-			Color3.fromRGB(25,25,30)
-	end
-end)
 
 --==================================================
 -- MAIN LOOP
@@ -459,56 +172,21 @@ end)
 RunService:BindToRenderStep(
 	"IvoryCamlock",
 	Enum.RenderPriority.Camera.Value + 5,
-	function()
+	function(dt)
+		if not Camera then return end
 
-		local Camera =
-			workspace.CurrentCamera
+		CurrentPart = pickTarget()
+		CurrentTarget = CurrentPart
 
-		if not Camera then
-			return
-		end
+		-- Camera lock
+		if CamlockEnabled and IsValidTarget(CurrentPart) then
+			local aimPos = GetPredictedPosition(CurrentPart)
 
-		--==================================================
-		-- ALWAYS FIND THE TARGET
-		--==================================================
-
-		local NewTarget =
-			FindTarget()
-
-		CurrentTarget =
-			NewTarget
-
-		--==================================================
-		-- TRACER IS ALWAYS ACTIVE
-		--==================================================
-
-		UpdateTracer(CurrentTarget)
-
-		--==================================================
-		-- CAMERA LOCK
-		--==================================================
-
-		if CamlockEnabled
-			and IsValidTarget(CurrentTarget) then
-
-			local AimPosition =
-				GetPredictedPosition(
-					CurrentTarget
-				)
-
-			if AimPosition then
-
-				local DesiredCFrame =
-					CFrame.lookAt(
-						Camera.CFrame.Position,
-						AimPosition
-					)
-
-				Camera.CFrame =
-					Camera.CFrame:Lerp(
-						DesiredCFrame,
-						SMOOTHNESS
-					)
+			if aimPos then
+				local desired = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+				-- Frame-rate independent smoothing
+				local alpha = 1 - math.exp(-SETTINGS.SMOOTHNESS * 60 * dt)
+				Camera.CFrame = Camera.CFrame:Lerp(desired, alpha)
 			end
 		end
 	end
