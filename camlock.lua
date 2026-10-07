@@ -1,13 +1,13 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
     ║         IVORY CAMLOCK — DA HOOD EDITION                  ║
-    ║         Delta Executor Build  (FIXED)                    ║
+    ║         Delta Executor Build  (FINAL)                    ║
     ╠══════════════════════════════════════════════════════════╣
-    ║  Fixes in this version:                                  ║
-    ║   • CAMLOCK button now toggles on Delta mobile           ║
-    ║   • ESP boxes scale with distance (shrink far / grow near)║
-    ║   • Hitscan prediction for Da Hood                       ║
-    ║   • Live PING_MULTIPLIER slider                          ║
+    ║   • Tap CAMLOCK button = toggle on/off                   ║
+    ║   • Hold CAMLOCK 3s    = enter drag mode                 ║
+    ║   • Locked-in best Da Hood prediction (1.00x ping lead)  ║
+    ║   • ESP boxes scale with distance                        ║
+    ║   • Q keybind toggle                                     ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -28,20 +28,24 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 --========================================================--
--- SETTINGS
+-- SETTINGS  (LOCKED — best for Da Hood)
 --========================================================--
 
-local HALF_FOV        = 90
+local HALF_FOV        = 90       -- 180° FOV
 local MAX_DISTANCE    = 1000
 local AIM_SMOOTHNESS  = 0.20
+
+-- BEST Da Hood prediction: lead by full ping (hitscan weapons)
 local PING_MULTIPLIER = 1.0
-local PING_EXTRA_MS   = 0.00
 
 -- ESP box scaling
-local BOX_NEAR_DIST   = 10     -- studs: closest  → box is biggest
-local BOX_FAR_DIST    = 500    -- studs: farthest → box is smallest
-local BOX_MAX_SIZE    = 90     -- pixel width at near distance
-local BOX_MIN_SIZE    = 22     -- pixel width at far distance
+local BOX_NEAR_DIST   = 10
+local BOX_FAR_DIST    = 500
+local BOX_MAX_SIZE    = 90
+local BOX_MIN_SIZE    = 22
+
+-- Hold duration to enter drag mode
+local HOLD_TO_DRAG_TIME = 3.0
 
 --========================================================--
 -- STATE
@@ -64,12 +68,12 @@ ScreenGui.Parent         = PlayerGui
 getgenv().IvoryCamlock = ScreenGui
 
 --========================================================--
--- MAIN PANEL
+-- MAIN PANEL  (draggable)
 --========================================================--
 
 local Main = Instance.new("Frame")
-Main.Size             = UDim2.fromOffset(260, 210)
-Main.Position         = UDim2.new(0.5, -130, 0.5, -105)
+Main.Size             = UDim2.fromOffset(260, 190)
+Main.Position         = UDim2.new(0.5, -130, 0.5, -95)
 Main.BackgroundColor3 = Color3.fromRGB(17, 17, 17)
 Main.BorderSizePixel  = 0
 Main.Active           = true
@@ -84,7 +88,6 @@ MainStroke.Thickness    = 1.2
 MainStroke.Transparency = 0.65
 MainStroke.Parent       = Main
 
--- Title
 local Title = Instance.new("TextLabel")
 Title.BackgroundTransparency = 1
 Title.Position               = UDim2.fromOffset(15, 10)
@@ -107,55 +110,29 @@ Subtitle.Font                   = Enum.Font.Gotham
 Subtitle.TextXAlignment         = Enum.TextXAlignment.Left
 Subtitle.Parent                 = Main
 
--- Slider
-local SliderLabel = Instance.new("TextLabel")
-SliderLabel.BackgroundTransparency = 1
-SliderLabel.Position               = UDim2.fromOffset(15, 62)
-SliderLabel.Size                   = UDim2.new(1, -30, 0, 16)
-SliderLabel.Text                   = "PREDICTION  •  1.00x"
-SliderLabel.TextColor3             = Color3.fromRGB(200, 200, 200)
-SliderLabel.TextSize               = 10
-SliderLabel.Font                   = Enum.Font.Gotham
-SliderLabel.TextXAlignment         = Enum.TextXAlignment.Left
-SliderLabel.Parent                 = Main
+-- Info line (replaces slider)
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Position               = UDim2.fromOffset(15, 62)
+InfoLabel.Size                   = UDim2.new(1, -30, 0, 18)
+InfoLabel.Text                   = "PREDICTION  •  LOCKED  •  1.00x"
+InfoLabel.TextColor3             = Color3.fromRGB(120, 200, 255)
+InfoLabel.TextSize               = 10
+InfoLabel.Font                   = Enum.Font.Gotham
+InfoLabel.TextXAlignment         = Enum.TextXAlignment.Left
+InfoLabel.Parent                 = Main
 
-local SliderBG = Instance.new("Frame")
-SliderBG.Position         = UDim2.fromOffset(15, 82)
-SliderBG.Size             = UDim2.new(1, -30, 0, 8)
-SliderBG.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-SliderBG.BorderSizePixel  = 0
-SliderBG.Parent           = Main
-Instance.new("UICorner", SliderBG).CornerRadius = UDim.new(1, 0)
+local InfoLabel2 = Instance.new("TextLabel")
+InfoLabel2.BackgroundTransparency = 1
+InfoLabel2.Position               = UDim2.fromOffset(15, 78)
+InfoLabel2.Size                   = UDim2.new(1, -30, 0, 18)
+InfoLabel2.Text                   = "HOLD 3s ON BUTTON TO MOVE"
+InfoLabel2.TextColor3             = Color3.fromRGB(145, 145, 145)
+InfoLabel2.TextSize               = 10
+InfoLabel2.Font                   = Enum.Font.Gotham
+InfoLabel2.TextXAlignment         = Enum.TextXAlignment.Left
+InfoLabel2.Parent                 = Main
 
-local SliderFill = Instance.new("Frame")
-SliderFill.Size             = UDim2.fromScale(0.5, 1)
-SliderFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-SliderFill.BorderSizePixel  = 0
-SliderFill.Parent           = SliderBG
-Instance.new("UICorner", SliderFill).CornerRadius = UDim.new(1, 0)
-
-local SliderKnob = Instance.new("Frame")
-SliderKnob.AnchorPoint      = Vector2.new(0.5, 0.5)
-SliderKnob.Position         = UDim2.new(0.5, 0, 0.5, 0)
-SliderKnob.Size             = UDim2.fromOffset(16, 16)
-SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-SliderKnob.BorderSizePixel  = 0
-SliderKnob.ZIndex           = 3
-SliderKnob.Parent           = SliderBG
-Instance.new("UICorner", SliderKnob).CornerRadius = UDim.new(1, 0)
-
-local SLIDER_MIN = 0.5
-local SLIDER_MAX = 1.5
-
-local function UpdateSliderVisual()
-    local alpha = (PING_MULTIPLIER - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)
-    alpha = math.clamp(alpha, 0, 1)
-    SliderFill.Size     = UDim2.fromScale(alpha, 1)
-    SliderKnob.Position = UDim2.new(alpha, 0, 0.5, 0)
-    SliderLabel.Text    = string.format("PREDICTION  •  %.2fx", PING_MULTIPLIER)
-end
-
--- GUI toggle
 local GuiToggle = Instance.new("TextButton")
 GuiToggle.Size             = UDim2.new(1, -30, 0, 38)
 GuiToggle.Position         = UDim2.fromOffset(15, 100)
@@ -169,7 +146,6 @@ GuiToggle.AutoButtonColor  = false
 GuiToggle.Parent           = Main
 Instance.new("UICorner", GuiToggle).CornerRadius = UDim.new(0, 8)
 
--- Status labels
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Position               = UDim2.fromOffset(15, 145)
@@ -183,7 +159,7 @@ StatusLabel.Parent                 = Main
 
 local TargetLabel = Instance.new("TextLabel")
 TargetLabel.BackgroundTransparency = 1
-TargetLabel.Position               = UDim2.fromOffset(15, 162)
+TargetLabel.Position               = UDim2.fromOffset(15, 160)
 TargetLabel.Size                   = UDim2.new(1, -30, 0, 16)
 TargetLabel.Text                   = "TARGET  •  NONE"
 TargetLabel.TextColor3             = Color3.fromRGB(180, 180, 180)
@@ -192,19 +168,8 @@ TargetLabel.Font                   = Enum.Font.Gotham
 TargetLabel.TextXAlignment         = Enum.TextXAlignment.Left
 TargetLabel.Parent                 = Main
 
-local PingLabel = Instance.new("TextLabel")
-PingLabel.BackgroundTransparency = 1
-PingLabel.Position               = UDim2.fromOffset(15, 179)
-PingLabel.Size                   = UDim2.new(1, -30, 0, 16)
-PingLabel.Text                   = "PING  •  0 ms"
-PingLabel.TextColor3             = Color3.fromRGB(180, 180, 180)
-PingLabel.TextSize               = 10
-PingLabel.Font                   = Enum.Font.Gotham
-PingLabel.TextXAlignment         = Enum.TextXAlignment.Left
-PingLabel.Parent                 = Main
-
 --========================================================--
--- CAMLOCK BUTTON  (NO Draggable — that was blocking taps)
+-- CAMLOCK BUTTON  (tap = toggle, hold 3s = drag mode)
 --========================================================--
 
 local CamlockButton = Instance.new("TextButton")
@@ -218,7 +183,7 @@ CamlockButton.TextSize         = 14
 CamlockButton.Font             = Enum.Font.GothamBold
 CamlockButton.AutoButtonColor  = false
 CamlockButton.Active           = true
-CamlockButton.Draggable        = false   -- 👈 KEY FIX
+CamlockButton.Draggable        = false
 CamlockButton.Parent           = ScreenGui
 Instance.new("UICorner", CamlockButton).CornerRadius = UDim.new(0, 12)
 
@@ -237,7 +202,7 @@ ESPFolder.Name   = "IvoryESP"
 ESPFolder.Parent = ScreenGui
 
 --========================================================--
--- TARGET BOX  (SizeOffset so it scales, we resize per-frame)
+-- TARGET BOX
 --========================================================--
 
 local function CreatePlayerBox(player)
@@ -357,7 +322,7 @@ local function GetPredictedPosition(player)
     local character, humanoid, root, head = GetCharacterInfo(player)
     if not character then return nil end
 
-    local pingTime = (GetPing() * PING_MULTIPLIER) + PING_EXTRA_MS
+    local pingTime = GetPing() * PING_MULTIPLIER
     local velocity = root.AssemblyLinearVelocity
 
     return head.Position + (velocity * pingTime)
@@ -392,7 +357,7 @@ local function UpdateTracer(target)
 end
 
 --========================================================--
--- ESP UPDATE  (now resizes per frame based on distance)
+-- ESP UPDATE  (scales with distance)
 --========================================================--
 
 local function UpdateESP()
@@ -409,15 +374,9 @@ local function UpdateESP()
                 billboard.Adornee = character
                 billboard.Enabled = true
 
-                -- Distance from camera to target
                 local distance = (head.Position - camPos).Magnitude
+                local alpha = math.clamp((distance - BOX_NEAR_DIST) / (BOX_FAR_DIST - BOX_NEAR_DIST), 0, 1)
 
-                -- Map distance → box size (clamped)
-                -- closer = bigger, farther = smaller
-                local alpha = (distance - BOX_NEAR_DIST) / (BOX_FAR_DIST - BOX_NEAR_DIST)
-                alpha = math.clamp(alpha, 0, 1)
-
-                -- Lerp from MAX → MIN
                 local boxW = BOX_MAX_SIZE + (BOX_MIN_SIZE - BOX_MAX_SIZE) * alpha
                 local boxH = boxW * 1.4
 
@@ -460,64 +419,107 @@ local function SetCamlock(enabled)
 end
 
 --========================================================--
--- BUTTON BINDING  (Delta mobile-safe)
+-- BUTTON: TAP = TOGGLE, HOLD 3s = DRAG MODE
 --========================================================--
 
--- IMPORTANT: use only InputBegan. MouseButton1Click + InputBegan
--- both fire on PC → causes double-toggle → looks like "nothing happens".
+local holdStart        = nil
+local holdConnection   = nil
+local dragConnection   = nil
+local isDragging       = false
+local dragModeArmed    = false   -- true when 3s hold has been reached
+local dragOffset       = Vector2.new(0, 0)
+local dragInputConn    = nil
 
-local function BindButton(button, callback)
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            callback()
+local function EndDrag()
+    isDragging = false
+    if dragConnection then dragConnection:Disconnect() dragConnection = nil end
+    if dragInputConn then dragInputConn:Disconnect() dragInputConn = nil end
+end
+
+local function StartDrag(input)
+    isDragging = true
+    dragModeArmed = false
+    CamlockButton.Draggable = false  -- we handle drag manually
+
+    -- Save offset between pointer and button top-left
+    local buttonPos = CamlockButton.AbsolutePosition
+    dragOffset = Vector2.new(input.Position.X - buttonPos.X,
+                             input.Position.Y - buttonPos.Y)
+
+    -- Live update
+    dragInputConn = UserInputService.InputChanged:Connect(function(moveInput)
+        if not isDragging then return end
+        if moveInput.UserInputType == Enum.UserInputType.MouseMovement
+        or moveInput.UserInputType == Enum.UserInputType.Touch then
+            local newX = moveInput.Position.X - dragOffset.X
+            local newY = moveInput.Position.Y - dragOffset.Y
+
+            -- Convert screen pixel to UDim2 (using offset only, relative to screen)
+            CamlockButton.Position = UDim2.fromOffset(newX, newY)
         end
     end)
 end
 
-BindButton(CamlockButton, function()
-    SetCamlock(not CamlockEnabled)
-end)
+CamlockButton.InputBegan:Connect(function(input)
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1
+    and input.UserInputType ~= Enum.UserInputType.Touch then return end
 
-BindButton(GuiToggle, function()
-    Main.Visible = not Main.Visible
-    GuiToggle.Text = Main.Visible and "HIDE GUI" or "SHOW GUI"
+    -- Start tracking hold
+    holdStart = tick()
+    dragModeArmed = false
+
+    -- After 3 seconds, enter drag mode
+    holdConnection = task.delay(HOLD_TO_DRAG_TIME, function()
+        if holdStart and not isDragging then
+            dragModeArmed = true
+            -- Visual cue
+            CamlockButton.Text = "MOVE MODE"
+            CamlockStroke.Color = Color3.fromRGB(255, 200, 60)
+            -- Start dragging from the current pointer position
+            local fakeInput = { Position = UserInputService:GetMouseLocation() }
+            StartDrag(fakeInput)
+        end
+    end)
+
+    -- Track release
+    local releaseConn
+    releaseConn = UserInputService.InputEnded:Connect(function(endInput)
+        if endInput.UserInputType ~= Enum.UserInputType.MouseButton1
+        and endInput.UserInputType ~= Enum.UserInputType.Touch then return end
+
+        releaseConn:Disconnect()
+
+        local heldTime = tick() - (holdStart or 0)
+        holdStart = nil
+
+        if holdConnection then
+            pcall(function() task.cancel(holdConnection) end)
+            holdConnection = nil
+        end
+
+        if isDragging then
+            -- Was dragging → stop
+            EndDrag()
+            CamlockButton.Text = CamlockEnabled and "CAMLOCK • ON" or "CAMLOCK • OFF"
+            CamlockStroke.Color = CamlockEnabled and Color3.fromRGB(120,255,120) or Color3.fromRGB(255,255,255)
+        else
+            -- Short tap → toggle camlock
+            if heldTime < HOLD_TO_DRAG_TIME then
+                SetCamlock(not CamlockEnabled)
+            end
+        end
+    end)
 end)
 
 --========================================================--
--- SLIDER DRAG
+-- GUI TOGGLE BUTTON  (simple tap)
 --========================================================--
 
-local sliderDragging = false
-
-local function UpdateSliderFromInput(input)
-    local absPos = SliderBG.AbsolutePosition
-    local absSize = SliderBG.AbsoluteSize
-    local alpha = math.clamp((input.Position.X - absPos.X) / absSize.X, 0, 1)
-    PING_MULTIPLIER = SLIDER_MIN + alpha * (SLIDER_MAX - SLIDER_MIN)
-    UpdateSliderVisual()
-end
-
-SliderBG.InputBegan:Connect(function(input)
+GuiToggle.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
     or input.UserInputType == Enum.UserInputType.Touch then
-        sliderDragging = true
-        UpdateSliderFromInput(input)
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if not sliderDragging then return end
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-        UpdateSliderFromInput(input)
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        sliderDragging = false
+        Main.Visible = not Main.Visible
+        GuiToggle.Text = Main.Visible and "HIDE GUI" or "SHOW GUI"
     end
 end)
 
@@ -547,7 +549,6 @@ RunService.RenderStepped:Connect(function(dt)
     if labelTimer >= 0.15 then
         labelTimer = 0
         TargetLabel.Text = CurrentTarget and ("TARGET  •  " .. CurrentTarget.Name) or "TARGET  •  NONE"
-        PingLabel.Text   = string.format("PING  •  %d ms", math.floor(GetPing() * 1000))
     end
 
     if not CamlockEnabled or not CurrentTarget then return end
@@ -577,13 +578,12 @@ end)
 --========================================================--
 
 SetCamlock(false)
-UpdateSliderVisual()
 
 pcall(function()
     if setthreadidentity then setthreadidentity(2) end
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "IVORY CAMLOCK",
-        Text  = "Fixed build loaded • Press Q",
+        Text  = "Tap to toggle • Hold 3s to move",
         Duration = 5,
     })
 end)
