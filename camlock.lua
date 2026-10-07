@@ -1,26 +1,17 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
     ║         IVORY CAMLOCK — DA HOOD EDITION                  ║
-    ║         Delta Executor Build                             ║
+    ║         Delta Executor Build  (FIXED)                    ║
     ╠══════════════════════════════════════════════════════════╣
-    ║  Features:                                               ║
-    ║   • Hitscan prediction (Da Hood guns)                    ║
-    ║   • Ping-tuned aim correction                            ║
+    ║  Fixes in this version:                                  ║
+    ║   • CAMLOCK button now toggles on Delta mobile           ║
+    ║   • ESP boxes scale with distance (shrink far / grow near)║
+    ║   • Hitscan prediction for Da Hood                       ║
     ║   • Live PING_MULTIPLIER slider                          ║
-    ║   • Smooth camlock                                       ║
-    ║   • White ESP boxes + tracer                             ║
-    ║   • 180° FOV (no circle)                                 ║
-    ║   • Toggle key: Q                                        ║
-    ║   • PC + Mobile (Delta)                                  ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
---========================================================--
--- DELTA HEADER
---========================================================--
-
 if not game:IsLoaded() then game.Loaded:Wait() end
-
 if getgenv().IvoryCamlock then
     pcall(function() getgenv().IvoryCamlock:Destroy() end)
 end
@@ -40,11 +31,17 @@ local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 -- SETTINGS
 --========================================================--
 
-local HALF_FOV        = 90       -- 180° FOV
+local HALF_FOV        = 90
 local MAX_DISTANCE    = 1000
 local AIM_SMOOTHNESS  = 0.20
-local PING_MULTIPLIER = 1.0      -- tune 0.8–1.2 for Da Hood
-local PING_EXTRA_MS   = 0.00     -- manual compensation (seconds)
+local PING_MULTIPLIER = 1.0
+local PING_EXTRA_MS   = 0.00
+
+-- ESP box scaling
+local BOX_NEAR_DIST   = 10     -- studs: closest  → box is biggest
+local BOX_FAR_DIST    = 500    -- studs: farthest → box is smallest
+local BOX_MAX_SIZE    = 90     -- pixel width at near distance
+local BOX_MIN_SIZE    = 22     -- pixel width at far distance
 
 --========================================================--
 -- STATE
@@ -71,7 +68,6 @@ getgenv().IvoryCamlock = ScreenGui
 --========================================================--
 
 local Main = Instance.new("Frame")
-Main.Name             = "Main"
 Main.Size             = UDim2.fromOffset(260, 210)
 Main.Position         = UDim2.new(0.5, -130, 0.5, -105)
 Main.BackgroundColor3 = Color3.fromRGB(17, 17, 17)
@@ -80,9 +76,7 @@ Main.Active           = true
 Main.Draggable        = true
 Main.Parent           = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 12)
-MainCorner.Parent       = Main
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
 
 local MainStroke = Instance.new("UIStroke")
 MainStroke.Color        = Color3.fromRGB(255, 255, 255)
@@ -90,10 +84,7 @@ MainStroke.Thickness    = 1.2
 MainStroke.Transparency = 0.65
 MainStroke.Parent       = Main
 
---========================================================--
--- TITLE
---========================================================--
-
+-- Title
 local Title = Instance.new("TextLabel")
 Title.BackgroundTransparency = 1
 Title.Position               = UDim2.fromOffset(15, 10)
@@ -116,10 +107,7 @@ Subtitle.Font                   = Enum.Font.Gotham
 Subtitle.TextXAlignment         = Enum.TextXAlignment.Left
 Subtitle.Parent                 = Main
 
---========================================================--
--- PING MULTIPLIER SLIDER
---========================================================--
-
+-- Slider
 local SliderLabel = Instance.new("TextLabel")
 SliderLabel.BackgroundTransparency = 1
 SliderLabel.Position               = UDim2.fromOffset(15, 62)
@@ -137,35 +125,25 @@ SliderBG.Size             = UDim2.new(1, -30, 0, 8)
 SliderBG.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 SliderBG.BorderSizePixel  = 0
 SliderBG.Parent           = Main
-
-local SliderBGCorner = Instance.new("UICorner")
-SliderBGCorner.CornerRadius = UDim.new(1, 0)
-SliderBGCorner.Parent       = SliderBG
+Instance.new("UICorner", SliderBG).CornerRadius = UDim.new(1, 0)
 
 local SliderFill = Instance.new("Frame")
 SliderFill.Size             = UDim2.fromScale(0.5, 1)
 SliderFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 SliderFill.BorderSizePixel  = 0
 SliderFill.Parent           = SliderBG
-
-local SliderFillCorner = Instance.new("UICorner")
-SliderFillCorner.CornerRadius = UDim.new(1, 0)
-SliderFillCorner.Parent       = SliderFill
+Instance.new("UICorner", SliderFill).CornerRadius = UDim.new(1, 0)
 
 local SliderKnob = Instance.new("Frame")
-SliderKnob.AnchorPoint       = Vector2.new(0.5, 0.5)
-SliderKnob.Position          = UDim2.new(0.5, 0, 0.5, 0)
-SliderKnob.Size              = UDim2.fromOffset(16, 16)
-SliderKnob.BackgroundColor3  = Color3.fromRGB(255, 255, 255)
-SliderKnob.BorderSizePixel   = 0
-SliderKnob.ZIndex            = 3
-SliderKnob.Parent            = SliderBG
+SliderKnob.AnchorPoint      = Vector2.new(0.5, 0.5)
+SliderKnob.Position         = UDim2.new(0.5, 0, 0.5, 0)
+SliderKnob.Size             = UDim2.fromOffset(16, 16)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderKnob.BorderSizePixel  = 0
+SliderKnob.ZIndex           = 3
+SliderKnob.Parent           = SliderBG
+Instance.new("UICorner", SliderKnob).CornerRadius = UDim.new(1, 0)
 
-local SliderKnobCorner = Instance.new("UICorner")
-SliderKnobCorner.CornerRadius = UDim.new(1, 0)
-SliderKnobCorner.Parent       = SliderKnob
-
--- Slider range 0.5 – 1.5
 local SLIDER_MIN = 0.5
 local SLIDER_MAX = 1.5
 
@@ -177,10 +155,7 @@ local function UpdateSliderVisual()
     SliderLabel.Text    = string.format("PREDICTION  •  %.2fx", PING_MULTIPLIER)
 end
 
---========================================================--
--- GUI TOGGLE BUTTON
---========================================================--
-
+-- GUI toggle
 local GuiToggle = Instance.new("TextButton")
 GuiToggle.Size             = UDim2.new(1, -30, 0, 38)
 GuiToggle.Position         = UDim2.fromOffset(15, 100)
@@ -192,15 +167,9 @@ GuiToggle.TextSize         = 12
 GuiToggle.Font             = Enum.Font.GothamBold
 GuiToggle.AutoButtonColor  = false
 GuiToggle.Parent           = Main
+Instance.new("UICorner", GuiToggle).CornerRadius = UDim.new(0, 8)
 
-local GuiToggleCorner = Instance.new("UICorner")
-GuiToggleCorner.CornerRadius = UDim.new(0, 8)
-GuiToggleCorner.Parent       = GuiToggle
-
---========================================================--
--- HIT-CHANCE LABEL
---========================================================--
-
+-- Status labels
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Position               = UDim2.fromOffset(15, 145)
@@ -235,7 +204,7 @@ PingLabel.TextXAlignment         = Enum.TextXAlignment.Left
 PingLabel.Parent                 = Main
 
 --========================================================--
--- FLOATING CAMLOCK BUTTON
+-- CAMLOCK BUTTON  (NO Draggable — that was blocking taps)
 --========================================================--
 
 local CamlockButton = Instance.new("TextButton")
@@ -249,11 +218,9 @@ CamlockButton.TextSize         = 14
 CamlockButton.Font             = Enum.Font.GothamBold
 CamlockButton.AutoButtonColor  = false
 CamlockButton.Active           = true
+CamlockButton.Draggable        = false   -- 👈 KEY FIX
 CamlockButton.Parent           = ScreenGui
-
-local CamlockCorner = Instance.new("UICorner")
-CamlockCorner.CornerRadius = UDim.new(0, 12)
-CamlockCorner.Parent       = CamlockButton
+Instance.new("UICorner", CamlockButton).CornerRadius = UDim.new(0, 12)
 
 local CamlockStroke = Instance.new("UIStroke")
 CamlockStroke.Color        = Color3.fromRGB(255, 255, 255)
@@ -270,23 +237,23 @@ ESPFolder.Name   = "IvoryESP"
 ESPFolder.Parent = ScreenGui
 
 --========================================================--
--- TARGET BOX
+-- TARGET BOX  (SizeOffset so it scales, we resize per-frame)
 --========================================================--
 
 local function CreatePlayerBox(player)
     local billboard = Instance.new("BillboardGui")
     billboard.Name           = player.Name .. "_Box"
-    billboard.Size           = UDim2.fromOffset(65, 90)
+    billboard.Size           = UDim2.fromOffset(BOX_MAX_SIZE, BOX_MAX_SIZE * 1.4)
     billboard.AlwaysOnTop    = true
     billboard.LightInfluence = 0
     billboard.Enabled        = false
     billboard.Parent         = ESPFolder
 
     local box = Instance.new("Frame")
-    box.Size                 = UDim2.fromScale(1, 1)
+    box.Size                   = UDim2.fromScale(1, 1)
     box.BackgroundTransparency = 1
-    box.BorderSizePixel      = 0
-    box.Parent               = billboard
+    box.BorderSizePixel        = 0
+    box.Parent                 = billboard
 
     local stroke = Instance.new("UIStroke")
     stroke.Name      = "Outline"
@@ -299,9 +266,7 @@ end
 
 local function GetPlayerBox(player)
     local box = ESPFolder:FindFirstChild(player.Name .. "_Box")
-    if not box then
-        box = CreatePlayerBox(player)
-    end
+    if not box then box = CreatePlayerBox(player) end
     return box
 end
 
@@ -323,7 +288,6 @@ Tracer.Parent           = ScreenGui
 
 local function GetCharacterInfo(player)
     if not player or player == LocalPlayer then return nil end
-
     local character = player.Character
     if not character then return nil end
 
@@ -338,30 +302,26 @@ local function GetCharacterInfo(player)
 end
 
 --========================================================--
--- TARGET SELECTION (ANGLE-BASED, 180°)
+-- TARGET SELECTION
 --========================================================--
 
 local function GetClosestTarget()
     local camera = workspace.CurrentCamera
     if not camera then return nil end
 
-    local cameraPosition = camera.CFrame.Position
-    local cameraLook     = camera.CFrame.LookVector
+    local camPos  = camera.CFrame.Position
+    local camLook = camera.CFrame.LookVector
 
-    local bestPlayer = nil
-    local bestAngle  = HALF_FOV
+    local bestPlayer, bestAngle = nil, HALF_FOV
 
     for _, player in ipairs(Players:GetPlayers()) do
         local character, humanoid, root, head = GetCharacterInfo(player)
         if character then
-            local offset   = head.Position - cameraPosition
+            local offset   = head.Position - camPos
             local distance = offset.Magnitude
-
             if distance > 0 and distance <= MAX_DISTANCE then
-                local direction = offset.Unit
-                local dot = math.clamp(cameraLook:Dot(direction), -1, 1)
+                local dot   = math.clamp(camLook:Dot(offset.Unit), -1, 1)
                 local angle = math.deg(math.acos(dot))
-
                 if angle < bestAngle then
                     bestAngle  = angle
                     bestPlayer = player
@@ -369,7 +329,6 @@ local function GetClosestTarget()
             end
         end
     end
-
     return bestPlayer
 end
 
@@ -377,17 +336,13 @@ end
 -- PING
 --========================================================--
 
-local cachedPing = 0.05
-local pingTimer  = 0
+local cachedPing, pingTimer = 0.05, 0
 
 local function GetPing()
-    -- Refresh once per second
     if tick() - pingTimer > 1 then
         pingTimer = tick()
-        local success, ping = pcall(function()
-            return LocalPlayer:GetNetworkPing()
-        end)
-        if success and typeof(ping) == "number" and ping > 0 then
+        local ok, ping = pcall(function() return LocalPlayer:GetNetworkPing() end)
+        if ok and typeof(ping) == "number" and ping > 0 then
             cachedPing = math.clamp(ping, 0, 0.4)
         end
     end
@@ -395,23 +350,17 @@ local function GetPing()
 end
 
 --========================================================--
--- HITSCAN PREDICTION (DA HOOD)
+-- HITSCAN PREDICTION
 --========================================================--
 
 local function GetPredictedPosition(player)
     local character, humanoid, root, head = GetCharacterInfo(player)
     if not character then return nil end
 
-    -- Da Hood guns are hitscan: aim ahead by your network latency.
     local pingTime = (GetPing() * PING_MULTIPLIER) + PING_EXTRA_MS
-
-    -- Velocity-based lead
     local velocity = root.AssemblyLinearVelocity
 
-    -- Slight head-offset guard: aim a touch below head center to catch neck/upper torso hitbox
-    local basePos = head.Position
-
-    return basePos + (velocity * pingTime)
+    return head.Position + (velocity * pingTime)
 end
 
 --========================================================--
@@ -419,25 +368,14 @@ end
 --========================================================--
 
 local function UpdateTracer(target)
-    if not target then
-        Tracer.Visible = false
-        return
-    end
-
+    if not target then Tracer.Visible = false return end
     local character, humanoid, root, head = GetCharacterInfo(target)
-    if not character then
-        Tracer.Visible = false
-        return
-    end
-
+    if not character then Tracer.Visible = false return end
     local camera = workspace.CurrentCamera
     if not camera then return end
 
     local position, visible = camera:WorldToViewportPoint(head.Position)
-    if not visible then
-        Tracer.Visible = false
-        return
-    end
+    if not visible then Tracer.Visible = false return end
 
     local viewport = camera.ViewportSize
     local start    = Vector2.new(viewport.X / 2, viewport.Y)
@@ -445,33 +383,45 @@ local function UpdateTracer(target)
     local diff     = finish - start
     local length   = diff.Magnitude
 
-    if length < 1 then
-        Tracer.Visible = false
-        return
-    end
+    if length < 1 then Tracer.Visible = false return end
 
     Tracer.Visible  = true
-    Tracer.Position = UDim2.fromOffset(
-        (start.X + finish.X) / 2,
-        (start.Y + finish.Y) / 2
-    )
+    Tracer.Position = UDim2.fromOffset((start.X + finish.X)/2, (start.Y + finish.Y)/2)
     Tracer.Size     = UDim2.fromOffset(length, 2)
     Tracer.Rotation = math.deg(math.atan2(diff.Y, diff.X))
 end
 
 --========================================================--
--- ESP UPDATE
+-- ESP UPDATE  (now resizes per frame based on distance)
 --========================================================--
 
 local function UpdateESP()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    local camPos = camera.CFrame.Position
+
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local billboard = GetPlayerBox(player)
-            local character = GetCharacterInfo(player)
+            local character, humanoid, root, head = GetCharacterInfo(player)
 
-            if character then
+            if character and head then
                 billboard.Adornee = character
                 billboard.Enabled = true
+
+                -- Distance from camera to target
+                local distance = (head.Position - camPos).Magnitude
+
+                -- Map distance → box size (clamped)
+                -- closer = bigger, farther = smaller
+                local alpha = (distance - BOX_NEAR_DIST) / (BOX_FAR_DIST - BOX_NEAR_DIST)
+                alpha = math.clamp(alpha, 0, 1)
+
+                -- Lerp from MAX → MIN
+                local boxW = BOX_MAX_SIZE + (BOX_MIN_SIZE - BOX_MAX_SIZE) * alpha
+                local boxH = boxW * 1.4
+
+                billboard.Size = UDim2.fromOffset(boxW, boxH)
 
                 local box = billboard:FindFirstChild("Box")
                 if box then
@@ -493,15 +443,16 @@ end
 
 local function SetCamlock(enabled)
     CamlockEnabled = enabled
-
     if enabled then
         CamlockButton.Text             = "CAMLOCK • ON"
         CamlockButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        CamlockStroke.Color            = Color3.fromRGB(120, 255, 120)
         StatusLabel.Text               = "STATUS  •  ACTIVE"
         StatusLabel.TextColor3         = Color3.fromRGB(120, 255, 120)
     else
         CamlockButton.Text             = "CAMLOCK • OFF"
         CamlockButton.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+        CamlockStroke.Color            = Color3.fromRGB(255, 255, 255)
         StatusLabel.Text               = "STATUS  •  IDLE"
         StatusLabel.TextColor3         = Color3.fromRGB(180, 180, 180)
         CurrentTarget                  = nil
@@ -509,29 +460,18 @@ local function SetCamlock(enabled)
 end
 
 --========================================================--
--- BUTTON BINDING (DELTA MOBILE-SAFE, DEBOUNCED)
+-- BUTTON BINDING  (Delta mobile-safe)
 --========================================================--
 
-local DEBOUNCE_TIME = 0.2
-local lastPress     = 0
-
-local function CanPress()
-    local now = tick()
-    if now - lastPress < DEBOUNCE_TIME then return false end
-    lastPress = now
-    return true
-end
+-- IMPORTANT: use only InputBegan. MouseButton1Click + InputBegan
+-- both fire on PC → causes double-toggle → looks like "nothing happens".
 
 local function BindButton(button, callback)
     button.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-            if CanPress() then callback() end
+            callback()
         end
-    end)
-
-    button.MouseButton1Click:Connect(function()
-        if CanPress() then callback() end
     end)
 end
 
@@ -545,16 +485,15 @@ BindButton(GuiToggle, function()
 end)
 
 --========================================================--
--- SLIDER INPUT (DRAG)
+-- SLIDER DRAG
 --========================================================--
 
 local sliderDragging = false
 
 local function UpdateSliderFromInput(input)
-    local posX = input.Position.X
     local absPos = SliderBG.AbsolutePosition
     local absSize = SliderBG.AbsoluteSize
-    local alpha = math.clamp((posX - absPos.X) / absSize.X, 0, 1)
+    local alpha = math.clamp((input.Position.X - absPos.X) / absSize.X, 0, 1)
     PING_MULTIPLIER = SLIDER_MIN + alpha * (SLIDER_MAX - SLIDER_MIN)
     UpdateSliderVisual()
 end
@@ -604,33 +543,23 @@ RunService.RenderStepped:Connect(function(dt)
     UpdateESP()
     UpdateTracer(CurrentTarget)
 
-    -- Update HUD labels once per 0.15s
     labelTimer = labelTimer + dt
     if labelTimer >= 0.15 then
         labelTimer = 0
-
-        if CurrentTarget then
-            TargetLabel.Text = "TARGET  •  " .. CurrentTarget.Name
-        else
-            TargetLabel.Text = "TARGET  •  NONE"
-        end
-
-        PingLabel.Text = string.format("PING  •  %d ms", math.floor(GetPing() * 1000))
+        TargetLabel.Text = CurrentTarget and ("TARGET  •  " .. CurrentTarget.Name) or "TARGET  •  NONE"
+        PingLabel.Text   = string.format("PING  •  %d ms", math.floor(GetPing() * 1000))
     end
 
-    if not CamlockEnabled then return end
-    if not CurrentTarget then return end
+    if not CamlockEnabled or not CurrentTarget then return end
 
     local camera = workspace.CurrentCamera
     if not camera then return end
 
-    local predictedPosition = GetPredictedPosition(CurrentTarget)
-    if not predictedPosition then return end
+    local predicted = GetPredictedPosition(CurrentTarget)
+    if not predicted then return end
 
-    local cameraPosition = camera.CFrame.Position
-    local desiredCFrame  = CFrame.lookAt(cameraPosition, predictedPosition)
-
-    camera.CFrame = camera.CFrame:Lerp(desiredCFrame, AIM_SMOOTHNESS)
+    local desired = CFrame.lookAt(camera.CFrame.Position, predicted)
+    camera.CFrame = camera.CFrame:Lerp(desired, AIM_SMOOTHNESS)
 end)
 
 --========================================================--
@@ -654,7 +583,7 @@ pcall(function()
     if setthreadidentity then setthreadidentity(2) end
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "IVORY CAMLOCK",
-        Text  = "Da Hood build loaded • Press Q",
+        Text  = "Fixed build loaded • Press Q",
         Duration = 5,
     })
 end)
