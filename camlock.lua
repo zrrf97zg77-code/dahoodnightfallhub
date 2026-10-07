@@ -1,12 +1,10 @@
---// IVORY'S CAMLOCK — DA HOOD OPTIMIZED (FULL)
---// Ping-adaptive prediction + K.O./grab filtering + Box ESP
+--// IVORY'S CAMLOCK — DA HOOD (Delta / gethui version)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 --==================================================
 -- SETTINGS
@@ -20,10 +18,10 @@ local SETTINGS = {
 
 	AIM_PART        = "UpperTorso",
 
-	BASE_PREDICTION = 0.125,
-	PING_MULTIPLIER = 0.0008,
+	BASE_PREDICTION = 0.128,
+	PING_MULTIPLIER = 0.0009,
 
-	SMOOTHNESS      = 0.18,
+	SMOOTHNESS      = 0.22,
 
 	BOX_PADDING     = 5,
 	BOX_THICKNESS   = 1.5,
@@ -41,7 +39,7 @@ local CamlockEnabled = false
 local CurrentPart    = nil
 
 --==================================================
--- GUI
+-- GUI (Delta-safe parent)
 --==================================================
 
 local Gui = Instance.new("ScreenGui")
@@ -50,7 +48,14 @@ Gui.ResetOnSpawn   = false
 Gui.IgnoreGuiInset = true
 Gui.DisplayOrder   = 1000
 Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-Gui.Parent         = PlayerGui
+
+local parentOk = pcall(function() Gui.Parent = gethui() end)
+if not parentOk then
+	pcall(function() Gui.Parent = game:GetService("CoreGui") end)
+	if not Gui.Parent then
+		Gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	end
+end
 
 --==================================================
 -- BUTTON
@@ -91,16 +96,15 @@ local Box = Instance.new("Frame")
 Box.AnchorPoint            = Vector2.new(0.5, 0.5)
 Box.BackgroundColor3       = SETTINGS.BOX_COLOR
 Box.BackgroundTransparency = SETTINGS.BOX_FILL_TRANSP
-Box.BorderSizePixel        = 0
-Box.ZIndex                 = 50
+Box.B["orderSizePixel        = 0
+Box.ZIndex                Data = 50
 Box.Parent                 = BoxContainer
 
 Instance.new("UICorner", Box).CornerRadius = UDim.new(0, SETTINGS.BOX_CORNER)
 
 local BoxStroke = Instance.new("UIStroke", Box)
-BoxStroke.Thickness       = SETTINGS.BOX_THICKNESS
-BoxStroke.Color           = SETTINGS.BOX_COLOR
-BoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+BoxStroke.Thickness = SETTINGS.BOX_THICKNESS
+BoxStroke.Color     = SETTINGS.BOX_COLOR
 
 local Label = Instance.new("TextLabel")
 Label.BackgroundTransparency = 1
@@ -118,15 +122,19 @@ Label.Parent                 = BoxContainer
 -- PREDICTION (PING-ADAPTIVE)
 --==================================================
 
+local cachedPing = 50
+local lastPingUpdate = 0
+
 local function getPrediction()
-	local ping = 50
-	pcall(function()
-		local pingStat = Stats.Network.ServerStatsItem["Data Ping"]
-		if pingStat then
-			ping = pingStat:GetValue()
-		end
-	end)
-	local prediction = SETTINGS.BASE_PREDICTION + (ping * SETTINGS.PING_MULTIPLIER)
+	local now = tick()
+	if now - lastPingUpdate > 1 then
+		lastPingUpdate = now
+		pcall(function()
+			local p = Stats.Network.ServerStatsItem Ping"]
+			if p then cachedPing = p:GetValue() end
+		end)
+	end
+	local prediction = SETTINGS.BASE_PREDICTION + (cachedPing * SETTINGS.PING_MULTIPLIER)
 	return math.clamp(prediction, 0.10, 0.20)
 end
 
@@ -165,16 +173,11 @@ end
 -- TARGET FINDING
 --==================================================
 
-local function getScreenCenter()
-	local cam = workspace.CurrentCamera
-	return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-end
-
 local function FindTarget()
 	local cam = workspace.CurrentCamera
 	if not cam then return nil end
 
-	local center = getScreenCenter()
+	local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
 	local best, bestDist = nil, math.huge
 	local minDot = math.cos(math.rad(SETTINGS.FOV / 2))
 
